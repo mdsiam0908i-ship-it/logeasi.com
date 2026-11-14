@@ -1,0 +1,6 @@
+{
+  "name": "LOGEASI.COM",
+  "description": "Your Time. Your Choice. Your Companion. On-demand verified social companion booking marketplace in Bangladesh.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

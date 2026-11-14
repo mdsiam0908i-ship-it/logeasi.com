@@ -1,0 +1,105 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedEmail() && (
+        request.auth.token.email == 'mdsiam0908i@gmail.com' ||
+        (
+          exists(/databases/$(database)/documents/admin_accounts/$(request.auth.uid)) &&
+          get(/databases/$(database)/documents/admin_accounts/$(request.auth.uid)).data.status == 'active'
+        )
+      );
+    }
+
+    // Public marketplace companion directory (zero PII; mutations mediated strictly by server API)
+    match /companion_profiles/{companionId} {
+      allow get: if isValidId(companionId);
+      allow list: if true;
+      allow write: if false;
+    }
+
+    // Public verified booking reviews (mutations mediated by server API after booking completion)
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if true;
+      allow write: if false;
+    }
+
+    // Core user records (owner or active admin read only; mutations mediated by server API)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, write: if false;
+
+      // Strictly server-only isolated PII, password hashes, and 2FA secrets
+      match /private/{docId} {
+        allow read, write: if false;
+      }
+    }
+
+    // Customer profile preferences (owner or admin read only)
+    match /customer_profiles/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list, write: if false;
+    }
+
+    // Bookings: strictly scoped to customer, companion, or active admin
+    match /bookings/{bookingId} {
+      allow get: if isValidId(bookingId) && isSignedIn() && (
+        resource.data.customerUid == request.auth.uid ||
+        resource.data.companionUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.customerUid == request.auth.uid ||
+        resource.data.companionUid == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // User notifications: strictly scoped to owner
+    match /notifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isSignedIn() && resource.data.userUid == request.auth.uid;
+      allow list: if isSignedIn() && resource.data.userUid == request.auth.uid;
+      allow write: if false;
+    }
+
+    // Sensitive operational, financial, RBAC, verification, and security collections:
+    // Strictly mediated by authenticated server-side RBAC endpoints via Firebase Admin SDK
+    match /admin_accounts/{adminUid} { allow read, write: if false; }
+    match /admin_roles/{roleKey} { allow read, write: if false; }
+    match /admin_permissions/{permKey} { allow read, write: if false; }
+    match /booking_messages/{messageId} { allow read, write: if false; }
+    match /payments/{paymentId} { allow read, write: if false; }
+    match /refunds/{refundId} { allow read, write: if false; }
+    match /companion_payouts/{payoutId} { allow read, write: if false; }
+    match /verification_requests/{requestId} { allow read, write: if false; }
+    match /support_tickets/{ticketId} { allow read, write: if false; }
+    match /reports/{reportId} { allow read, write: if false; }
+    match /audit_logs/{logId} { allow read, write: if false; }
+    match /platform_settings/{settingKey} { allow read, write: if false; }
+    match /otp_challenges/{challengeId} { allow read, write: if false; }
+    match /password_resets/{resetId} { allow read, write: if false; }
+    match /backup_snapshots/{snapId} { allow read, write: if false; }
+  }
+}

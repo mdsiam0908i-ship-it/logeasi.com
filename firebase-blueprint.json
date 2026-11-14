@@ -1,0 +1,428 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Core authenticated user account with role and adult 18+ status",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "role": {
+          "type": "string",
+          "enum": ["root_super_admin", "super_admin", "finance_admin", "support_admin", "verification_admin", "content_manager", "customer", "companion"]
+        },
+        "isAdultVerified18Plus": { "type": "boolean" },
+        "phoneVerified": { "type": "boolean" },
+        "emailVerified": { "type": "boolean" },
+        "twoFactorEnabled": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "suspended", "deactivated"] },
+        "photoUrl": { "type": "string", "maxLength": 450000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "fullName", "role", "isAdultVerified18Plus", "status"]
+    },
+    "UserPrivateSecurity": {
+      "title": "UserPrivateSecurity",
+      "description": "Isolated PII and security credentials never exposed publicly",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "dateOfBirth": { "type": "string", "maxLength": 20 },
+        "passwordHash": { "type": "string", "maxLength": 200 },
+        "totpSecretEncrypted": { "type": "string", "maxLength": 300 },
+        "recoveryEmail": { "type": "string", "maxLength": 200 },
+        "failedLoginAttempts": { "type": "number" },
+        "lockedUntil": { "type": "string" },
+        "lastLoginIp": { "type": "string", "maxLength": 80 },
+        "lastLoginAt": { "type": "string" }
+      },
+      "required": ["uid"]
+    },
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "Customer preferences, city, and safety blocklist",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "city": { "type": "string", "maxLength": 80 },
+        "area": { "type": "string", "maxLength": 80 },
+        "bio": { "type": "string", "maxLength": 600 },
+        "emergencyContactName": { "type": "string", "maxLength": 120 },
+        "emergencyContactPhone": { "type": "string", "maxLength": 30 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "city"]
+    },
+    "CompanionProfile": {
+      "title": "CompanionProfile",
+      "description": "Verified companion marketplace listing with BDT rates and availability",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "headline": { "type": "string", "maxLength": 160 },
+        "bio": { "type": "string", "maxLength": 1500 },
+        "city": { "type": "string", "maxLength": 80 },
+        "areas": { "type": "array" },
+        "languages": { "type": "array" },
+        "categories": { "type": "array" },
+        "hourlyRateBdt": { "type": "number" },
+        "sessionRateBdt": { "type": "number" },
+        "availabilityDays": { "type": "array" },
+        "availabilityHours": { "type": "string", "maxLength": 80 },
+        "isAvailableNow": { "type": "boolean" },
+        "verificationStatus": { "type": "string", "enum": ["unverified", "pending", "approved", "rejected"] },
+        "ratingAvg": { "type": "number" },
+        "reviewCount": { "type": "number" },
+        "completedBookings": { "type": "number" },
+        "pendingBalanceBdt": { "type": "number" },
+        "availableBalanceBdt": { "type": "number" },
+        "photoUrl": { "type": "string", "maxLength": 450000 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "displayName", "city", "hourlyRateBdt", "sessionRateBdt", "verificationStatus"]
+    },
+    "AdminAccount": {
+      "title": "AdminAccount",
+      "description": "Administrator registry with protected Root Super Admin flag",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "adminId": { "type": "string", "maxLength": 40 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "role": { "type": "string", "enum": ["root_super_admin", "super_admin", "finance_admin", "support_admin", "verification_admin", "content_manager"] },
+        "isRootOwner": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid", "adminId", "role", "isRootOwner", "status"]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Configurable RBAC role definition",
+      "type": "object",
+      "properties": {
+        "roleKey": { "type": "string", "maxLength": 64 },
+        "label": { "type": "string", "maxLength": 80 },
+        "permissions": { "type": "array" },
+        "isSystemProtected": { "type": "boolean" }
+      },
+      "required": ["roleKey", "label", "permissions"]
+    },
+    "AdminPermission": {
+      "title": "AdminPermission",
+      "description": "Granular permission catalog entry",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "maxLength": 80 },
+        "category": { "type": "string", "maxLength": 60 },
+        "description": { "type": "string", "maxLength": 200 }
+      },
+      "required": ["key", "category"]
+    },
+    "Booking": {
+      "title": "Booking",
+      "description": "Uber-inspired booking lifecycle between customer and companion",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "bookingCode": { "type": "string", "maxLength": 40 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "companionUid": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 80 },
+        "city": { "type": "string", "maxLength": 80 },
+        "venueName": { "type": "string", "maxLength": 160 },
+        "bookingDate": { "type": "string", "maxLength": 20 },
+        "startTime": { "type": "string", "maxLength": 20 },
+        "pricingType": { "type": "string", "enum": ["hourly", "session"] },
+        "durationHours": { "type": "number" },
+        "proposedTotalBdt": { "type": "number" },
+        "agreedPriceBdt": { "type": "number" },
+        "platformFeeBdt": { "type": "number" },
+        "companionNetBdt": { "type": "number" },
+        "status": {
+          "type": "string",
+          "enum": ["requested", "accepted_awaiting_agreement", "declined", "price_agreed_awaiting_payment", "payment_pending", "confirmed_paid", "in_progress", "completed", "cancelled", "disputed"]
+        },
+        "customerAgreed": { "type": "boolean" },
+        "companionAgreed": { "type": "boolean" },
+        "paymentStatus": { "type": "string", "enum": ["unpaid", "pending", "paid", "cash_pending", "refunded"] },
+        "notes": { "type": "string", "maxLength": 600 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "bookingCode", "customerUid", "companionUid", "status", "agreedPriceBdt"]
+    },
+    "BookingMessage": {
+      "title": "BookingMessage",
+      "description": "Contextual message inside a booking thread",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 120 },
+        "body": { "type": "string", "maxLength": 1000 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "bookingId", "senderUid", "body"]
+    },
+    "Payment": {
+      "title": "Payment",
+      "description": "Server-verified payment transaction (no sensitive MFS PINs or card numbers)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "transactionId": { "type": "string", "maxLength": 80 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "companionUid": { "type": "string", "maxLength": 128 },
+        "gateway": { "type": "string", "enum": ["bkash", "nagad", "rocket", "sslcommerz", "cash"] },
+        "mode": { "type": "string", "enum": ["sandbox", "live"] },
+        "amountBdt": { "type": "number" },
+        "platformFeeBdt": { "type": "number" },
+        "companionNetBdt": { "type": "number" },
+        "status": { "type": "string", "enum": ["initiated", "verified_paid", "cash_pending", "failed", "refunded"] },
+        "webhookVerified": { "type": "boolean" },
+        "createdAt": { "type": "string" },
+        "verifiedAt": { "type": "string" }
+      },
+      "required": ["id", "transactionId", "bookingId", "gateway", "amountBdt", "status", "webhookVerified"]
+    },
+    "Refund": {
+      "title": "Refund",
+      "description": "Booking cancellation refund request and admin settlement status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "paymentId": { "type": "string", "maxLength": 128 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "amountBdt": { "type": "number" },
+        "reason": { "type": "string", "maxLength": 600 },
+        "status": { "type": "string", "enum": ["requested", "approved", "processed", "rejected"] },
+        "processedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "paymentId", "bookingId", "customerUid", "amountBdt", "status"]
+    },
+    "CompanionPayout": {
+      "title": "CompanionPayout",
+      "description": "Companion earnings withdrawal request and finance approval",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "companionUid": { "type": "string", "maxLength": 128 },
+        "amountBdt": { "type": "number" },
+        "method": { "type": "string", "enum": ["bkash", "nagad", "rocket", "bank_eft"] },
+        "accountMasked": { "type": "string", "maxLength": 60 },
+        "status": { "type": "string", "enum": ["pending", "approved", "paid", "rejected"] },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "companionUid", "amountBdt", "method", "status"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "Verified customer review for a completed booking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "customerUid": { "type": "string", "maxLength": 128 },
+        "companionUid": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "rating": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 800 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "bookingId", "customerUid", "companionUid", "rating"]
+    },
+    "VerificationRequest": {
+      "title": "VerificationRequest",
+      "description": "18+ adult identity verification submitted for Verification Admin review",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "uid": { "type": "string", "maxLength": 128 },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "documentType": { "type": "string", "enum": ["nid", "passport", "driving_license"] },
+        "documentNumberMasked": { "type": "string", "maxLength": 40 },
+        "dateOfBirth": { "type": "string", "maxLength": 20 },
+        "calculatedAge": { "type": "number" },
+        "city": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "reviewerNote": { "type": "string", "maxLength": 400 },
+        "reviewedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "uid", "documentType", "dateOfBirth", "calculatedAge", "status"]
+    },
+    "SupportTicket": {
+      "title": "SupportTicket",
+      "description": "Customer or companion support ticket, dispute, or payment complaint",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "ticketCode": { "type": "string", "maxLength": 40 },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "bookingId": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "enum": ["booking_dispute", "payment_complaint", "refund_request", "safety_report", "account_help"] },
+        "subject": { "type": "string", "maxLength": 180 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "status": { "type": "string", "enum": ["open", "in_review", "resolved", "closed"] },
+        "adminReply": { "type": "string", "maxLength": 1500 },
+        "assignedAdminUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "ticketCode", "userUid", "category", "subject", "status"]
+    },
+    "Notification": {
+      "title": "Notification",
+      "description": "In-app and multi-channel notification entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "maxLength": 60 },
+        "title": { "type": "string", "maxLength": 140 },
+        "message": { "type": "string", "maxLength": 500 },
+        "read": { "type": "boolean" },
+        "link": { "type": "string", "maxLength": 200 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userUid", "type", "title", "read"]
+    },
+    "Report": {
+      "title": "Report",
+      "description": "Safety report and user block record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "reporterUid": { "type": "string", "maxLength": 128 },
+        "reportedUid": { "type": "string", "maxLength": 128 },
+        "blockUser": { "type": "boolean" },
+        "reason": { "type": "string", "maxLength": 800 },
+        "status": { "type": "string", "enum": ["open", "investigating", "resolved"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "reporterUid", "reportedUid", "reason", "status"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Immutable security and admin action audit trail",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "actorUid": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "maxLength": 60 },
+        "action": { "type": "string", "maxLength": 100 },
+        "targetType": { "type": "string", "maxLength": 60 },
+        "targetId": { "type": "string", "maxLength": 128 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "actorUid", "action", "severity", "createdAt"]
+    },
+    "PlatformSetting": {
+      "title": "PlatformSetting",
+      "description": "Global platform configuration, fee percentage, payment mode, and root lock",
+      "type": "object",
+      "properties": {
+        "key": { "type": "string", "maxLength": 80 },
+        "serviceFeePercent": { "type": "number" },
+        "paymentMode": { "type": "string", "enum": ["sandbox", "live"] },
+        "cashPaymentEnabled": { "type": "boolean" },
+        "maxCashBookingBdt": { "type": "number" },
+        "rootAdminUid": { "type": "string", "maxLength": 128 },
+        "announcementBanner": { "type": "string", "maxLength": 300 },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["key"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Authenticated user account records"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateSecurity" },
+      "description": "Isolated PII, DOB, 2FA secrets, and login security state"
+    },
+    "/customer_profiles/{userId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "Customer profile preferences"
+    },
+    "/companion_profiles/{companionId}": {
+      "schema": { "$ref": "#/entities/CompanionProfile" },
+      "description": "Public companion marketplace profiles"
+    },
+    "/admin_accounts/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminAccount" },
+      "description": "Administrator accounts including protected Root Super Admin"
+    },
+    "/admin_roles/{roleKey}": {
+      "schema": { "$ref": "#/entities/AdminRole" },
+      "description": "RBAC role permission mappings"
+    },
+    "/admin_permissions/{permKey}": {
+      "schema": { "$ref": "#/entities/AdminPermission" },
+      "description": "System permission definitions"
+    },
+    "/bookings/{bookingId}": {
+      "schema": { "$ref": "#/entities/Booking" },
+      "description": "Companion booking requests and lifecycle state"
+    },
+    "/booking_messages/{messageId}": {
+      "schema": { "$ref": "#/entities/BookingMessage" },
+      "description": "Messages scoped to booking participants"
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/Payment" },
+      "description": "Payment gateway transactions"
+    },
+    "/refunds/{refundId}": {
+      "schema": { "$ref": "#/entities/Refund" },
+      "description": "Refund requests and processing status"
+    },
+    "/companion_payouts/{payoutId}": {
+      "schema": { "$ref": "#/entities/CompanionPayout" },
+      "description": "Companion payout requests"
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Verified reviews on completed bookings"
+    },
+    "/verification_requests/{requestId}": {
+      "schema": { "$ref": "#/entities/VerificationRequest" },
+      "description": "18+ adult identity verification submissions"
+    },
+    "/support_tickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/SupportTicket" },
+      "description": "Support tickets and disputes"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/Notification" },
+      "description": "User notifications"
+    },
+    "/reports/{reportId}": {
+      "schema": { "$ref": "#/entities/Report" },
+      "description": "Safety reports and user blocklist records"
+    },
+    "/audit_logs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Immutable administrative and security audit trail"
+    },
+    "/platform_settings/{settingKey}": {
+      "schema": { "$ref": "#/entities/PlatformSetting" },
+      "description": "Global marketplace configuration and root owner lock"
+    }
+  }
+}

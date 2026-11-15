@@ -20,7 +20,7 @@ export type BookingStatus =
   | 'cancelled'
   | 'disputed';
 
-export type PaymentGateway = 'bkash' | 'nagad' | 'rocket' | 'sslcommerz' | 'cash';
+export type PaymentGateway = 'bkash' | 'nagad' | 'custom' | 'benson' | 'rocket' | 'sslcommerz' | 'cash';
 
 export interface UserAccount {
   uid: string;
@@ -35,12 +35,21 @@ export interface UserAccount {
   twoFactorEnabled: boolean;
   status: 'active' | 'suspended' | 'deactivated';
   photoUrl: string;
+  gender?: 'male' | 'female';
   city?: string;
   area?: string;
+  profileCompleted?: boolean;
+  profileUpdatedAt?: string;
+  profileDeadlineAt?: string;
   createdAt: string;
   isRootOwner?: boolean;
   adminId?: string;
   permissions?: string[];
+  referralCode?: string;
+  referralCreditsBdt?: number;
+  referredByUid?: string;
+  referredByCode?: string;
+  referralCount?: number;
 }
 
 export interface CompanionProfile {
@@ -53,6 +62,8 @@ export interface CompanionProfile {
   areas: string[];
   languages: string[];
   categories: string[];
+  interests?: string[];
+  skills?: string[];
   hourlyRateBdt: number;
   sessionRateBdt: number;
   availabilityDays: string[];
@@ -65,6 +76,7 @@ export interface CompanionProfile {
   pendingBalanceBdt?: number;
   availableBalanceBdt?: number;
   photoUrl: string;
+  gender?: 'male' | 'female';
   instagramHandle?: string;
   whatsappNumber?: string;
   contactEmail?: string;
@@ -89,13 +101,19 @@ export interface BookingRecord {
   pricingType: 'hourly' | 'session';
   durationHours: number;
   proposedTotalBdt: number;
+  originalTotalBdt?: number;
+  creditsUsedBdt?: number;
   agreedPriceBdt: number;
+  advanceRequiredBdt?: number;
+  advancePaidBdt?: number;
+  remainingDueBdt?: number;
+  advanceStatus?: 'unpaid' | 'pending_verification' | 'paid';
   platformFeeBdt: number;
   companionNetBdt: number;
   status: BookingStatus;
   customerAgreed: boolean;
   companionAgreed: boolean;
-  paymentStatus: 'unpaid' | 'pending' | 'paid' | 'cash_pending' | 'refunded';
+  paymentStatus: 'unpaid' | 'pending' | 'advance_paid' | 'paid' | 'cash_pending' | 'refunded';
   notes: string;
   cancellationReason?: string;
   createdAt: string;
@@ -120,6 +138,7 @@ export interface PaymentRecord {
   companionUid: string;
   gateway: PaymentGateway;
   mode: 'sandbox' | 'live';
+  paymentStage?: 'advance_50' | 'remaining_50' | 'full';
   amountBdt: number;
   platformFeeBdt: number;
   companionNetBdt: number;
@@ -127,6 +146,10 @@ export interface PaymentRecord {
   webhookVerified: boolean;
   gatewaySessionId?: string;
   senderReferenceTrxId?: string;
+  bensonDeliveryMode?: 'in_person' | 'send_delivery';
+  proofPhotoUrl?: string;
+  equivalentItemLabel?: string;
+  equivalentItemPackets?: number;
   createdAt: string;
   verifiedAt?: string;
 }
@@ -158,11 +181,15 @@ export interface CompanionPayoutRecord {
 export interface ReviewRecord {
   id: string;
   bookingId: string;
+  bookingCode?: string;
+  category?: string;
   customerUid: string;
   companionUid: string;
+  companionName?: string;
   customerName: string;
   rating: number;
   comment: string;
+  tags?: string[];
   createdAt: string;
 }
 
@@ -170,7 +197,7 @@ export interface VerificationRequestRecord {
   id: string;
   uid: string;
   fullName: string;
-  documentType: 'nid' | 'passport' | 'driving_license';
+  documentType: 'nid' | 'school_roll' | 'student_id' | 'passport' | 'driving_license';
   documentNumberMasked: string;
   dateOfBirth: string;
   calculatedAge: number;
@@ -251,11 +278,54 @@ export interface PlatformSettings {
   maxCashBookingBdt: number;
   bkashPersonalNumber?: string;
   nagadPersonalNumber?: string;
+  customPaymentLabel?: string;
+  customPaymentNumber?: string;
+  customPaymentInstructions?: string;
+  bensonPaymentLabel?: string;
+  bensonBaseBdt?: number;
+  bensonPacketsPerBase?: number;
+  bensonItemName?: string;
+  bensonContactNumber?: string;
+  bensonPaymentInstructions?: string;
+  noticeBoardTitle?: string;
+  noticeBoardMessage?: string;
+  adminContactUsername?: string;
+  adminContactEmail?: string;
+  adminContactInstagram?: string;
   allowedDivision?: string;
   rootAdminUid: string;
   announcementBanner: string;
   safetyNotice: string;
   featuredHeadline: string;
   bookingCategories?: string[];
+  referralReferrerBonusCredits?: number;
+  referralSignupBonusCredits?: number;
   updatedAt: string;
+}
+
+export interface ReferralRecord {
+  id: string;
+  referrerUid: string;
+  referrerName: string;
+  referredUid: string;
+  referredName: string;
+  referredRole: UserRole;
+  referralCode: string;
+  referrerRewardCredits: number;
+  referredBonusCredits: number;
+  status: 'credited';
+  createdAt: string;
+}
+
+export interface ReferralTransactionRecord {
+  id: string;
+  userUid: string;
+  type: 'earned_referral' | 'earned_welcome_bonus' | 'redeemed_booking' | 'refunded_booking';
+  creditsBdt: number;
+  balanceAfterBdt: number;
+  description: string;
+  relatedReferralId?: string;
+  relatedBookingId?: string;
+  relatedBookingCode?: string;
+  createdAt: string;
 }

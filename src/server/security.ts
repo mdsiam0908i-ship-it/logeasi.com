@@ -1,12 +1,16 @@
 import crypto from 'node:crypto';
 import bcrypt from 'bcryptjs';
+import firebaseConfig from '../../firebase-applet-config.json';
 
-// Ephemeral fallback secrets if env vars are not yet provisioned in Secrets panel.
-// Production deployments should set SESSION_SECRET and PAYMENT_WEBHOOK_SECRET in env.
+// Deterministic stable fallback secret if env vars are not explicitly configured in deployment
+// so sessions, OTP hashes, and encrypted fields survive restarts and multi-instance scaling.
+const STABLE_APP_SEED = `${firebaseConfig.projectId}:${firebaseConfig.firestoreDatabaseId}:${firebaseConfig.appId}`;
 const RUNTIME_SESSION_SECRET =
-  process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+  process.env.SESSION_SECRET ||
+  crypto.createHmac('sha256', 'LOGEASI_SESSION_FALLBACK_V1').update(STABLE_APP_SEED).digest('hex');
 const RUNTIME_WEBHOOK_SECRET =
-  process.env.PAYMENT_WEBHOOK_SECRET || crypto.randomBytes(32).toString('hex');
+  process.env.PAYMENT_WEBHOOK_SECRET ||
+  crypto.createHmac('sha256', 'LOGEASI_WEBHOOK_FALLBACK_V1').update(STABLE_APP_SEED).digest('hex');
 const RUNTIME_ENCRYPTION_KEY = crypto
   .createHash('sha256')
   .update(process.env.SESSION_SECRET || RUNTIME_SESSION_SECRET)
@@ -223,7 +227,9 @@ export function calculateAgeFromDob(dobIso: string): number {
 
 export function maskDocumentNumber(docNum: string): string {
   const clean = docNum.trim();
-  if (clean.length <= 4) return '****';
+  if (!clean) return '****';
+  if (clean.length <= 2) return `*${clean.slice(-1)}`;
+  if (clean.length <= 4) return `${'*'.repeat(clean.length - 2)}${clean.slice(-2)}`;
   return `${'*'.repeat(Math.max(4, clean.length - 4))}${clean.slice(-4)}`;
 }
 

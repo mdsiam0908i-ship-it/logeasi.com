@@ -1,9 +1,20 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, ChevronDown, LogOut, Menu, Shield, User as UserIcon, X } from 'lucide-react';
+import { Bell, ChevronDown, Gift, LogOut, Megaphone, Menu, Shield, User as UserIcon, X } from 'lucide-react';
+import { DeveloperBanner } from './DeveloperBanner.tsx';
 import { useAuth } from '../context/AuthContext.tsx';
 
 export function Navbar() {
-  const { user, unreadCount, notifications, markAllNotificationsRead, currentPath, navigate, logout } = useAuth();
+  const {
+    user,
+    unreadCount,
+    notifications,
+    markAllNotificationsRead,
+    currentPath,
+    profileStatus,
+    openNoticeBoard,
+    navigate,
+    logout,
+  } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -30,11 +41,11 @@ export function Navbar() {
     ].includes(user.role);
 
   const navLinks = [
-    { label: 'Explore', path: '/explore' },
-    { label: 'How It Works', path: '/how-it-works' },
-    { label: 'Become Companion', path: '/become-companion' },
-    { label: 'Safety', path: '/safety' },
-    { label: 'Help', path: '/help' },
+    { label: 'সঙ্গী খুঁজুন', path: '/explore' },
+    { label: 'যেভাবে কাজ করে', path: '/how-it-works' },
+    { label: 'সঙ্গী হোন', path: '/become-companion' },
+    { label: 'নিরাপত্তা', path: '/safety' },
+    { label: 'সহায়তা', path: '/help' },
   ];
 
   const handleNav = (path: string) => {
@@ -47,6 +58,7 @@ export function Navbar() {
 
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/90">
+      <DeveloperBanner variant="topstrip" />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-6">
         {/* Zone 1: Brand wordmark */}
         <button
@@ -88,14 +100,14 @@ export function Navbar() {
                 onClick={() => handleNav('/auth?tab=login')}
                 className="px-3.5 py-2 text-sm font-semibold text-slate-800 hover:text-blue-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Sign In
+                সাইন ইন
               </button>
               <button
                 type="button"
                 onClick={() => handleNav('/auth?tab=register')}
                 className="px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-800 rounded-lg shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
-                Sign Up
+                সাইন আপ
               </button>
             </div>
           ) : (
@@ -134,21 +146,52 @@ export function Navbar() {
                         onClick={() => handleNav('/dashboard/customer')}
                         className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 cursor-pointer"
                       >
-                        Customer Dashboard
+                        গ্রাহক ড্যাশবোর্ড
                       </button>
                       <button
                         type="button"
                         onClick={() => handleNav('/dashboard/companion')}
                         className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 cursor-pointer"
                       >
-                        Companion Dashboard
+                        সঙ্গী ড্যাশবোর্ড
                       </button>
                       <button
                         type="button"
                         onClick={() => handleNav('/bookings')}
                         className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 cursor-pointer"
                       >
-                        Booking History & Chat
+                        বুকিং ইতিহাস ও চ্যাট
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNav('/transactions')}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 cursor-pointer"
+                      >
+                        পেমেন্ট ও রসিদ ইতিহাস
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleNav('/referrals')}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Gift className="w-3.5 h-3.5 text-blue-700" /> রেফারেল ও ক্রেডিট বোনাস
+                        </span>
+                        {(user.referralCreditsBdt || 0) > 0 && (
+                          <span className="font-mono text-xs font-bold text-blue-700 tabular-nums">
+                            {user.referralCreditsBdt} পয়েন্ট
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          openNoticeBoard();
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 hover:text-blue-700 flex items-center gap-2 cursor-pointer"
+                      >
+                        <Megaphone className="w-3.5 h-3.5 text-blue-700" /> অ্যাডমিন নোটিশ বোর্ড
                       </button>
                       {isAdmin && (
                         <>
@@ -159,7 +202,7 @@ export function Navbar() {
                             className="w-full text-left px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 flex items-center gap-2 cursor-pointer"
                           >
                             <Shield className="w-4 h-4" />
-                            Admin Control Center
+                            অ্যাডমিন কন্ট্রোল সেন্টার
                           </button>
                         </>
                       )}
@@ -169,7 +212,7 @@ export function Navbar() {
                       <div className="border-t border-slate-100 px-4 py-2 max-h-48 overflow-y-auto">
                         <div className="flex items-center justify-between text-xs font-semibold text-slate-500 mb-1.5">
                           <span className="flex items-center gap-1">
-                            <Bell className="w-3.5 h-3.5" /> Recent Notifications
+                            <Bell className="w-3.5 h-3.5" /> সাম্প্রতিক নোটিফিকেশন
                           </span>
                         </div>
                         <div className="space-y-1.5">
@@ -197,7 +240,7 @@ export function Navbar() {
                         }}
                         className="w-full text-left px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 flex items-center gap-2 cursor-pointer"
                       >
-                        <LogOut className="w-4 h-4" /> Sign Out
+                        <LogOut className="w-4 h-4" /> সাইন আউট
                       </button>
                     </div>
                   </div>
@@ -210,11 +253,11 @@ export function Navbar() {
                   setMenuOpen(false);
                   logout();
                 }}
-                title="Sign Out"
+                title="সাইন আউট"
                 className="hidden lg:inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 hover:text-red-700 hover:bg-red-50 border border-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5" />
-                Sign Out
+                সাইন আউট
               </button>
             </div>
           )}
@@ -225,7 +268,7 @@ export function Navbar() {
               onClick={() => handleNav('/auth?tab=login')}
               className="sm:hidden px-3 py-1.5 text-xs font-semibold text-white bg-blue-700 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
             >
-              Sign In
+              সাইন ইন
             </button>
           )}
 
@@ -233,7 +276,7 @@ export function Navbar() {
             type="button"
             onClick={() => setMobileOpen((v) => !v)}
             className="md:hidden p-2 rounded-lg text-slate-700 hover:bg-slate-100 cursor-pointer"
-            aria-label="Toggle navigation"
+            aria-label="মেনু খুলুন"
           >
             {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
@@ -260,14 +303,14 @@ export function Navbar() {
                   onClick={() => handleNav('/auth?tab=login')}
                   className="py-2 text-sm font-semibold text-slate-800 border border-slate-300 rounded-lg"
                 >
-                  Sign In
+                  সাইন ইন
                 </button>
                 <button
                   type="button"
                   onClick={() => handleNav('/auth?tab=register')}
                   className="py-2 text-sm font-semibold text-white bg-blue-700 rounded-lg"
                 >
-                  Sign Up
+                  সাইন আপ
                 </button>
               </div>
             ) : (
@@ -277,7 +320,14 @@ export function Navbar() {
                   onClick={() => handleNav(user.role === 'companion' ? '/dashboard/companion' : '/dashboard/customer')}
                   className="block w-full text-left px-3 py-2.5 text-sm font-semibold text-blue-700 bg-blue-50 rounded-lg"
                 >
-                  My Dashboard ({user.fullName})
+                  আমার ড্যাশবোর্ড ({user.fullName})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleNav('/referrals')}
+                  className="block w-full text-left px-3 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-50 rounded-lg"
+                >
+                  রেফারেল ও ক্রেডিট বোনাস ({user.referralCreditsBdt || 0} পয়েন্ট)
                 </button>
                 <button
                   type="button"
@@ -287,10 +337,43 @@ export function Navbar() {
                   }}
                   className="block w-full text-left px-3 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-50 rounded-lg"
                 >
-                  Sign Out
+                  সাইন আউট
                 </button>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {user && profileStatus.needsUpdate && (
+        <div
+          className={`border-t text-[11px] sm:text-xs transition-colors ${
+            profileStatus.isLockedOut
+              ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-amber-50/75 border-amber-200/80 text-amber-900'
+          }`}
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-1.5 flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                handleNav(
+                  user.role === 'companion'
+                    ? '/dashboard/companion?editProfile=1'
+                    : '/dashboard/customer?editProfile=1'
+                )
+              }
+              className="w-full text-left flex flex-wrap items-center justify-between gap-2 hover:underline cursor-pointer"
+            >
+              <span>
+                {profileStatus.isLockedOut
+                  ? 'জরুরি নোটিশ: ৩ দিনের মধ্যে প্রোফাইল আপডেট না করায় সব ফিচার লক আছে — আনলক করতে এখানে ক্লিক করে প্রোফাইল আপডেট করুন।'
+                  : `হালকা নোটিশ: আপনার প্রোফাইল তথ্য এখনো আপডেট করা হয়নি (আর ${profileStatus.daysLeft} দিন / ${profileStatus.hoursLeft} ঘণ্টা বাকি) — ৩ দিনের মধ্যে আপডেট না করলে সব কার্যক্রম লক হয়ে যাবে।`}
+              </span>
+              <span className="font-semibold text-blue-800 whitespace-nowrap shrink-0">
+                প্রোফাইল আপডেট করুন →
+              </span>
+            </button>
           </div>
         </div>
       )}

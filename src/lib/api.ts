@@ -35,21 +35,15 @@ export async function apiRequest<T = any>(
     ...(options.headers as Record<string, string> | undefined),
   };
 
-  let bearerSet = false;
-  if (auth.currentUser) {
+  const stored = getStoredSessionToken();
+  if (stored) {
+    headers['Authorization'] = `Bearer ${stored}`;
+  } else if (auth.currentUser) {
     try {
       const idToken = await auth.currentUser.getIdToken();
       headers['Authorization'] = `Bearer ${idToken}`;
-      bearerSet = true;
     } catch {
-      // Fallback to stored session token or HttpOnly cookie
-    }
-  }
-
-  if (!bearerSet) {
-    const stored = getStoredSessionToken();
-    if (stored) {
-      headers['Authorization'] = `Bearer ${stored}`;
+      // Fallback to HttpOnly cookie
     }
   }
 

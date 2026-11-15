@@ -19,6 +19,11 @@
         "twoFactorEnabled": { "type": "boolean" },
         "status": { "type": "string", "enum": ["active", "suspended", "deactivated"] },
         "photoUrl": { "type": "string", "maxLength": 450000 },
+        "referralCode": { "type": "string", "maxLength": 32 },
+        "referralCreditsBdt": { "type": "number" },
+        "referredByUid": { "type": "string", "maxLength": 128 },
+        "referredByCode": { "type": "string", "maxLength": 32 },
+        "referralCount": { "type": "number" },
         "createdAt": { "type": "string" }
       },
       "required": ["uid", "fullName", "role", "isAdultVerified18Plus", "status"]
@@ -142,6 +147,8 @@
         "pricingType": { "type": "string", "enum": ["hourly", "session"] },
         "durationHours": { "type": "number" },
         "proposedTotalBdt": { "type": "number" },
+        "originalTotalBdt": { "type": "number" },
+        "creditsUsedBdt": { "type": "number" },
         "agreedPriceBdt": { "type": "number" },
         "platformFeeBdt": { "type": "number" },
         "companionNetBdt": { "type": "number" },
@@ -182,13 +189,15 @@
         "bookingId": { "type": "string", "maxLength": 128 },
         "customerUid": { "type": "string", "maxLength": 128 },
         "companionUid": { "type": "string", "maxLength": 128 },
-        "gateway": { "type": "string", "enum": ["bkash", "nagad", "rocket", "sslcommerz", "cash"] },
+        "gateway": { "type": "string", "enum": ["bkash", "nagad", "custom", "benson", "rocket", "sslcommerz", "cash"] },
         "mode": { "type": "string", "enum": ["sandbox", "live"] },
         "amountBdt": { "type": "number" },
         "platformFeeBdt": { "type": "number" },
         "companionNetBdt": { "type": "number" },
-        "status": { "type": "string", "enum": ["initiated", "verified_paid", "cash_pending", "failed", "refunded"] },
+        "status": { "type": "string", "enum": ["initiated", "pending_manual_verification", "verified_paid", "cash_pending", "failed", "refunded"] },
         "webhookVerified": { "type": "boolean" },
+        "bensonDeliveryMode": { "type": "string", "enum": ["in_person", "send_delivery"] },
+        "proofPhotoUrl": { "type": "string", "maxLength": 450000 },
         "createdAt": { "type": "string" },
         "verifiedAt": { "type": "string" }
       },
@@ -234,11 +243,15 @@
       "properties": {
         "id": { "type": "string", "maxLength": 128 },
         "bookingId": { "type": "string", "maxLength": 128 },
+        "bookingCode": { "type": "string", "maxLength": 40 },
+        "category": { "type": "string", "maxLength": 80 },
         "customerUid": { "type": "string", "maxLength": 128 },
         "companionUid": { "type": "string", "maxLength": 128 },
+        "companionName": { "type": "string", "maxLength": 120 },
         "customerName": { "type": "string", "maxLength": 120 },
         "rating": { "type": "number" },
         "comment": { "type": "string", "maxLength": 800 },
+        "tags": { "type": "array" },
         "createdAt": { "type": "string" }
       },
       "required": ["id", "bookingId", "customerUid", "companionUid", "rating"]
@@ -342,9 +355,50 @@
         "maxCashBookingBdt": { "type": "number" },
         "rootAdminUid": { "type": "string", "maxLength": 128 },
         "announcementBanner": { "type": "string", "maxLength": 300 },
+        "bensonPaymentLabel": { "type": "string", "maxLength": 120 },
+        "bensonBaseBdt": { "type": "number" },
+        "bensonPacketsPerBase": { "type": "number" },
+        "bensonItemName": { "type": "string", "maxLength": 100 },
         "updatedAt": { "type": "string" }
       },
       "required": ["key"]
+    },
+    "Referral": {
+      "title": "Referral",
+      "description": "User invite attribution record awarding credit points to referrer and referred user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "referrerUid": { "type": "string", "maxLength": 128 },
+        "referrerName": { "type": "string", "maxLength": 120 },
+        "referredUid": { "type": "string", "maxLength": 128 },
+        "referredName": { "type": "string", "maxLength": 120 },
+        "referredRole": { "type": "string", "maxLength": 40 },
+        "referralCode": { "type": "string", "maxLength": 32 },
+        "referrerRewardCredits": { "type": "number" },
+        "referredBonusCredits": { "type": "number" },
+        "status": { "type": "string", "enum": ["credited"] },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "referrerUid", "referredUid", "referralCode", "status"]
+    },
+    "ReferralTransaction": {
+      "title": "ReferralTransaction",
+      "description": "Ledger entry for referral credit points earned or redeemed on companion bookings",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userUid": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["earned_referral", "earned_welcome_bonus", "redeemed_booking", "refunded_booking"] },
+        "creditsBdt": { "type": "number" },
+        "balanceAfterBdt": { "type": "number" },
+        "description": { "type": "string", "maxLength": 300 },
+        "relatedReferralId": { "type": "string", "maxLength": 128 },
+        "relatedBookingId": { "type": "string", "maxLength": 128 },
+        "relatedBookingCode": { "type": "string", "maxLength": 40 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "userUid", "type", "creditsBdt", "balanceAfterBdt"]
     }
   },
   "firestore": {
@@ -423,6 +477,14 @@
     "/platform_settings/{settingKey}": {
       "schema": { "$ref": "#/entities/PlatformSetting" },
       "description": "Global marketplace configuration and root owner lock"
+    },
+    "/referrals/{referralId}": {
+      "schema": { "$ref": "#/entities/Referral" },
+      "description": "User referral invite tracking and credit awards"
+    },
+    "/referral_transactions/{txId}": {
+      "schema": { "$ref": "#/entities/ReferralTransaction" },
+      "description": "Referral credit points earnings and booking redemption ledger"
     }
   }
 }

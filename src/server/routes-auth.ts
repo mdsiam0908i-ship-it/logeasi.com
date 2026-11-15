@@ -13,6 +13,12 @@ import {
   isAdminRole,
   writeAuditLog,
 } from './rbac.ts';
+import {
+  REFERRER_BONUS_CREDITS,
+  REFERRED_WELCOME_CREDITS,
+  applyReferralOnSignup,
+  ensureUserReferralCode,
+} from './referrals.ts';
 import { DEFAULT_BENGALI_BOOKING_CATEGORIES } from '../data/bookingCategories.ts';
 import {
   RUNTIME_ROOT_SETUP_TOKEN,
@@ -39,12 +45,7 @@ export const authRouter = Router();
 
 function isHttpsRequest(req: Request): boolean {
   const proto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
-  return (
-    req.secure ||
-    proto.includes('https') ||
-    process.env.NODE_ENV === 'production' ||
-    Boolean(process.env.APP_URL?.startsWith('https://'))
-  );
+  return req.secure || proto.includes('https');
 }
 
 function setSessionCookie(req: Request, res: Response, uid: string, email: string, role: string): string {
@@ -79,6 +80,26 @@ authRouter.get('/platform/public', async (_req, res) => {
       maxCashBookingBdt: data.maxCashBookingBdt ?? 3000,
       bkashPersonalNumber: data.bkashPersonalNumber || '01700-000000',
       nagadPersonalNumber: data.nagadPersonalNumber || '01877pokpok',
+      customPaymentLabel: data.customPaymentLabel || '৩. অ্যাডমিন পার্সোনাল রকেট / কাস্টম সেন্ড মানি',
+      customPaymentNumber: data.customPaymentNumber || '01700-000000',
+      customPaymentInstructions:
+        data.customPaymentInstructions ||
+        'বুকিং নিশ্চিত করতে মোট টাকার ৫০% অ্যাডমিন পার্সোনাল নম্বরে সেন্ড মানি করে TrxID জমা দিন।',
+      bensonPaymentLabel: data.bensonPaymentLabel || '৪. বেনসন সিগারেট পেমেন্ট (১,০০০৳ = ৩ প্যাকেট)',
+      bensonBaseBdt: Number(data.bensonBaseBdt || 1000),
+      bensonPacketsPerBase: Number(data.bensonPacketsPerBase || 3),
+      bensonItemName: data.bensonItemName || 'প্যাকেট বেনসন সিগারেট',
+      bensonContactNumber: data.bensonContactNumber || data.bkashPersonalNumber || '01700-000000',
+      bensonPaymentInstructions:
+        data.bensonPaymentInstructions ||
+        'প্রতি ১,০০০ টাকা সমান ৩ প্যাকেট বেনসন সিগারেট। নির্ধারিত প্যাকেট হস্তান্তর করে ডেলিভারি রেফারেন্স/ফোন নম্বর লিখে জমা দিন।',
+      noticeBoardTitle: data.noticeBoardTitle || 'জরুরি নোটিশ বোর্ড — LOGEASI.COM',
+      noticeBoardMessage:
+        data.noticeBoardMessage ||
+        'টপ ১০০ সামাজিক সঙ্গী ডিরেক্টরিতে স্বাগতম! যেকোনো সহায়তা, ভেরিফিকেশন বা পেমেন্ট সংক্রান্ত বিষয়ে নিচের অ্যাডমিন যোগাযোগ মাধ্যমে সরাসরি যোগাযোগ করুন। বুকিংয়ের পর প্রথমে ৫০% অ্যাডভান্স পেমেন্ট সম্পন্ন করুন।',
+      adminContactUsername: data.adminContactUsername || 'sheik_siam0077',
+      adminContactEmail: data.adminContactEmail || 'mdsiam0908i@gmail.com',
+      adminContactInstagram: data.adminContactInstagram || '@sheik_siam0077',
       allowedDivision: data.allowedDivision || 'All Bangladesh Divisions',
       announcementBanner: data.announcementBanner || '',
       safetyNotice: data.safetyNotice || '',
@@ -87,6 +108,8 @@ authRouter.get('/platform/public', async (_req, res) => {
         Array.isArray(data.bookingCategories) && data.bookingCategories.length > 0
           ? data.bookingCategories
           : DEFAULT_BENGALI_BOOKING_CATEGORIES,
+      referralReferrerBonusCredits: REFERRER_BONUS_CREDITS,
+      referralSignupBonusCredits: REFERRED_WELCOME_CREDITS,
       rootInitialized: Boolean(rootLockUid),
     });
   } catch (err) {
@@ -100,17 +123,23 @@ authRouter.get('/auth/me', attachAuthIfPresent, async (req: AuthenticatedRequest
     return res.json({ user: null });
   }
   try {
-    let customerProfile = null;
-    let companionProfile = null;
-    const [custSnap, cmpSnap] = await Promise.all([
+    const [custSnap, cmpSnap, refMeta] = await Promise.all([
       adminDb.collection('customer_profiles').doc(req.authUser.uid).get(),
       adminDb.collection('companion_profiles').doc(req.authUser.uid).get(),
+      ensureUserReferralCode(req.authUser),
     ]);
+    let customerProfile = null;
+    let companionProfile = null;
     if (custSnap.exists) customerProfile = custSnap.data();
     if (cmpSnap.exists) companionProfile = cmpSnap.data();
 
     res.json({
-      user: req.authUser,
+      user: {
+        ...req.authUser,
+        referralCode: refMeta.referralCode,
+        referralCreditsBdt: refMeta.referralCreditsBdt,
+        referralCount: refMeta.referralCount,
+      },
       customerProfile,
       companionProfile,
     });
@@ -126,7 +155,7 @@ authRouter.post(
   rateLimitMiddleware(25, 60_000, 'auth_google'),
   async (req, res) => {
     try {
-      const { idToken, intendedRole, dateOfBirth, totpCode } = req.body || {};
+      const { idToken, intendedRole, dateOfBirth, totpCode, referralCode } = req.body || {};
       if (!idToken || typeof idToken !== 'string') {
         return res.status(400).json({ error: 'Missing Google authentication token.' });
       }
@@ -211,6 +240,7 @@ authRouter.post(
           }
         }
 
+        const isNewAdmin = isAdminRole(assignedRole as UserAccount['role']);
         const newUser: UserAccount = {
           uid,
           email,
@@ -224,6 +254,10 @@ authRouter.post(
           status: 'active',
           photoUrl,
           city: 'Dhaka',
+          profileCompleted: isNewAdmin,
+          profileDeadlineAt: isNewAdmin ? '' : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+          referralCreditsBdt: 0,
+          referralCount: 0,
           createdAt: now,
         };
 
@@ -273,6 +307,23 @@ authRouter.post(
             contactEmail: email,
             updatedAt: now,
           });
+        }
+
+        await userRef.set(newUser);
+        const refMeta = await ensureUserReferralCode(newUser);
+        newUser.referralCode = refMeta.referralCode;
+        newUser.referralCreditsBdt = refMeta.referralCreditsBdt;
+        newUser.referralCount = refMeta.referralCount;
+
+        if (!isNewAdmin && referralCode) {
+          const refRes = await applyReferralOnSignup({
+            newUser,
+            rawReferralCode: String(referralCode),
+          });
+          if (refRes.applied) {
+            newUser.referralCreditsBdt = (newUser.referralCreditsBdt || 0) + refRes.bonusCredits;
+            newUser.referredByCode = String(referralCode).trim().toUpperCase();
+          }
         }
 
         const sessionToken = setSessionCookie(req, res, uid, email, assignedRole);
@@ -363,6 +414,8 @@ authRouter.post(
         hourlyRateBdt,
         sessionRateBdt,
         photoUrl,
+        gender,
+        referralCode,
       } = req.body || {};
       const cleanEmail = sanitizeString(email, 200).toLowerCase();
       const cleanName = sanitizeString(fullName, 120);
@@ -370,20 +423,22 @@ authRouter.post(
       const cleanCity = isKnownBangladeshLocation(rawCity) ? rawCity : 'Dhaka';
       const cleanDivision =
         normalizeDivisionKey(division) || resolveDivisionForLocation(cleanCity) || 'Dhaka';
+      const cleanGender: 'male' | 'female' | undefined =
+        gender === 'female' ? 'female' : gender === 'male' ? 'male' : undefined;
       const cleanPhone = sanitizeString(phone || '', 30);
       const cleanInstagram = sanitizeString(instagramHandle || '', 160);
       const cleanWhatsapp = sanitizeString(whatsappNumber || cleanPhone, 40);
       const cleanContactEmail = sanitizeString(contactEmail || cleanEmail, 160).toLowerCase();
       const cleanPhotoUrl = photoUrl !== undefined ? (sanitizePhotoData(photoUrl) ?? '') : '';
 
-      if (!cleanEmail || !cleanEmail.includes('@') || !password || String(password).length < 8) {
+      if (!cleanEmail || !cleanEmail.includes('@') || !password || String(password).length < 6) {
         return res.status(400).json({
-          error: 'Valid email and password (minimum 8 characters) are required.',
+          error: 'সঠিক ইমেইল ও কমপক্ষে ৬ অক্ষরের পাসওয়ার্ড দিন (Valid email and minimum 6 character password required).',
         });
       }
       if (!cleanName || !dateOfBirth) {
         return res.status(400).json({
-          error: 'Full name and Date of Birth (18+ verification) are required.',
+          error: 'পুরো নাম এবং জন্ম তারিখ (১৮+ যাচাইয়ের জন্য) আবশ্যক (Full name and Date of Birth required).',
         });
       }
 
@@ -423,10 +478,17 @@ authRouter.post(
         status: 'active',
         photoUrl: cleanPhotoUrl,
         city: cleanCity,
+        ...(cleanGender ? { gender: cleanGender } : {}),
+        profileCompleted: false,
+        profileDeadlineAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        referralCreditsBdt: 0,
+        referralCount: 0,
         createdAt: now,
       };
 
       await adminDb.collection('users').doc(uid).set(newUser);
+      const refMeta = await ensureUserReferralCode(newUser);
+      newUser.referralCode = refMeta.referralCode;
       await adminDb.collection('users').doc(uid).collection('private').doc('security').set({
         uid,
         dateOfBirth: encryptSensitive(String(dateOfBirth)),
@@ -454,6 +516,7 @@ authRouter.post(
           bio: sanitizeString(bio || '', 1500),
           city: cleanCity,
           division: cleanDivision,
+          ...(cleanGender ? { gender: cleanGender } : {}),
           areas: [cleanCity === 'Dhaka' ? 'Gulshan' : cleanCity],
           languages: ['Bengali', 'English'],
           categories: ['Dining & Coffee'],
@@ -474,6 +537,17 @@ authRouter.post(
           contactEmail: cleanContactEmail,
           updatedAt: now,
         });
+      }
+
+      if (referralCode) {
+        const refRes = await applyReferralOnSignup({
+          newUser,
+          rawReferralCode: String(referralCode),
+        });
+        if (refRes.applied) {
+          newUser.referralCreditsBdt = (newUser.referralCreditsBdt || 0) + refRes.bonusCredits;
+          newUser.referredByCode = String(referralCode).trim().toUpperCase();
+        }
       }
 
       const sessionToken = setSessionCookie(req, res, uid, cleanEmail, safeRole);
@@ -598,7 +672,7 @@ authRouter.post(
   rateLimitMiddleware(6, 60_000, 'phone_otp'),
   async (req, res) => {
     try {
-      const { phone, fullName, dateOfBirth, intendedRole } = req.body || {};
+      const { phone, fullName, dateOfBirth, intendedRole, gender, referralCode } = req.body || {};
       const cleanPhone = sanitizeString(phone, 30).replace(/\s+/g, '');
       if (!/^\+?8801[3-9]\d{8}$/.test(cleanPhone) && !/^\+\d{8,15}$/.test(cleanPhone)) {
         return res.status(400).json({
@@ -618,6 +692,9 @@ authRouter.post(
       const otp = String(crypto.randomInt(100000, 999999));
       const challengeId = `OTP_${crypto.randomBytes(8).toString('hex')}`;
       const now = Date.now();
+      const cleanGender: 'male' | 'female' | '' =
+        gender === 'female' ? 'female' : gender === 'male' ? 'male' : '';
+      const cleanReferralCode = sanitizeString(referralCode || '', 32).trim().toUpperCase();
 
       await adminDb.collection('otp_challenges').doc(challengeId).set({
         id: challengeId,
@@ -625,6 +702,8 @@ authRouter.post(
         fullName: sanitizeString(fullName || '', 120),
         dateOfBirth: dateOfBirth ? encryptSensitive(String(dateOfBirth)) : '',
         intendedRole: intendedRole === 'companion' ? 'companion' : 'customer',
+        ...(cleanGender ? { gender: cleanGender } : {}),
+        ...(cleanReferralCode ? { referralCode: cleanReferralCode } : {}),
         otpHash: hashOtp(otp),
         attempts: 0,
         expiresAt: new Date(now + 5 * 60_000).toISOString(),
@@ -724,6 +803,8 @@ authRouter.post(
       // New phone user registration
       const uid = `phn_${crypto.randomBytes(10).toString('hex')}`;
       const safeRole = ch.intendedRole === 'companion' ? 'companion' : 'customer';
+      const chGender: 'male' | 'female' | undefined =
+        ch.gender === 'female' ? 'female' : ch.gender === 'male' ? 'male' : undefined;
       const newUser: UserAccount = {
         uid,
         email: '',
@@ -737,10 +818,17 @@ authRouter.post(
         status: 'active',
         photoUrl: '',
         city: 'Dhaka',
+        ...(chGender ? { gender: chGender } : {}),
+        profileCompleted: false,
+        profileDeadlineAt: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+        referralCreditsBdt: 0,
+        referralCount: 0,
         createdAt: now,
       };
 
       await adminDb.collection('users').doc(uid).set(newUser);
+      const refMeta = await ensureUserReferralCode(newUser);
+      newUser.referralCode = refMeta.referralCode;
       await adminDb.collection('users').doc(uid).collection('private').doc('security').set({
         uid,
         dateOfBirth: ch.dateOfBirth || '',
@@ -767,6 +855,7 @@ authRouter.post(
           bio: '',
           city: 'Dhaka',
           division: 'Dhaka',
+          ...(chGender ? { gender: chGender } : {}),
           areas: ['Gulshan'],
           languages: ['Bengali', 'English'],
           categories: ['Dining & Coffee'],
@@ -787,6 +876,17 @@ authRouter.post(
           contactEmail: '',
           updatedAt: now,
         });
+      }
+
+      if (ch.referralCode) {
+        const refRes = await applyReferralOnSignup({
+          newUser,
+          rawReferralCode: String(ch.referralCode),
+        });
+        if (refRes.applied) {
+          newUser.referralCreditsBdt = (newUser.referralCreditsBdt || 0) + refRes.bonusCredits;
+          newUser.referredByCode = String(ch.referralCode).trim().toUpperCase();
+        }
       }
 
       const sessionToken = setSessionCookie(req, res, uid, '', safeRole);
@@ -842,8 +942,8 @@ authRouter.post(
 authRouter.post('/auth/reset-password', async (req, res) => {
   try {
     const { token, newPassword } = req.body || {};
-    if (!token || !newPassword || String(newPassword).length < 8) {
-      return res.status(400).json({ error: 'Valid reset token and 8+ char password required.' });
+    if (!token || !newPassword || String(newPassword).length < 6) {
+      return res.status(400).json({ error: 'Valid reset token and 6+ char password required.' });
     }
 
     const ref = adminDb.collection('password_resets').doc(String(token));

@@ -1,8 +1,20 @@
 import crypto from 'node:crypto';
 import { Router } from 'express';
 import { adminDb } from '../lib/firebase-admin.ts';
-import { attachAuthIfPresent, requireAuth, type AuthenticatedRequest } from './middleware.ts';
+import {
+  attachAuthIfPresent,
+  requireAuth,
+  requireProfileUnlocked,
+  type AuthenticatedRequest,
+} from './middleware.ts';
 import { createNotification, isAdminRole, writeAuditLog } from './rbac.ts';
+import {
+  REFERRER_BONUS_CREDITS,
+  REFERRED_WELCOME_CREDITS,
+  ensureUserReferralCode,
+  findUserByReferralCode,
+  recordReferralTransaction,
+} from './referrals.ts';
 import {
   calculateAgeFromDob,
   maskDocumentNumber,
@@ -120,6 +132,13 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
 
     const scoreMap = new Map<string, number>();
 
+    const queryTokens = q
+      ? q
+          .split(/[\s,+/]+/)
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
+
     let list = allCompanions
       .map((c) => ({ ...c, topRank: rankMap.get(c.uid) }))
       .filter((c) => {
@@ -157,7 +176,7 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
             .replace(/[()/,]/g, ' ')
             .split(/\s+/)
             .filter((p) => p.length >= 2);
-          const hayCat = `${(c.categories || []).join(' ')} ${c.headline || ''} ${c.bio || ''}`.toLowerCase();
+          const hayCat = `${(c.categories || []).join(' ')} ${(c.interests || []).join(' ')} ${(c.skills || []).join(' ')} ${c.headline || ''} ${c.bio || ''}`.toLowerCase();
           const directMatch = (c.categories || []).some((cat) => cat.toLowerCase().includes(category));
           const fuzzyCatMatch =
             catParts.length > 0 && catParts.some((part) => hayCat.includes(part));
@@ -167,34 +186,63 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
           const matchLang = (c.languages || []).some((l) => l.toLowerCase().includes(language));
           if (!matchLang) return false;
         }
-        if (q) {
-          const hay = `${c.displayName} ${c.headline} ${c.bio} ${c.division || ''} ${c.city} ${(c.areas || []).join(' ')} ${(c.categories || []).join(' ')}`.toLowerCase();
-          if (!hay.includes(q)) return false;
+
+        let totalScore = 0;
+
+        if (queryTokens.length > 0) {
+          const nameHay = (c.displayName || '').toLowerCase();
+          const skillsInterestsHay = `${(c.skills || []).join(' ')} ${(c.interests || []).join(' ')} ${(c.categories || []).join(' ')}`.toLowerCase();
+          const headlineHay = (c.headline || '').toLowerCase();
+          const locationLangHay = `${c.division || ''} ${c.city} ${(c.areas || []).join(' ')} ${(c.languages || []).join(' ')}`.toLowerCase();
+          const bioHay = (c.bio || '').toLowerCase();
+          const fullHay = `${nameHay} ${skillsInterestsHay} ${headlineHay} ${locationLangHay} ${bioHay}`;
+
+          const matchesAllTokens = queryTokens.every((token) => fullHay.includes(token));
+          if (!matchesAllTokens) return false;
+
+          if (nameHay.includes(q)) totalScore += 15;
+          for (const token of queryTokens) {
+            if (nameHay.includes(token)) totalScore += 8;
+            if (skillsInterestsHay.includes(token)) totalScore += 6;
+            if (headlineHay.includes(token)) totalScore += 4;
+            if (locationLangHay.includes(token)) totalScore += 3;
+            if (bioHay.includes(token)) totalScore += 2;
+          }
         }
 
         if (preference) {
-          let score = 0;
-          const hayAll = `${c.displayName} ${c.headline} ${c.bio} ${c.division || ''} ${c.city} ${(c.areas || []).join(' ')} ${(c.categories || []).join(' ')}`.toLowerCase();
-          const catText = `${(c.categories || []).join(' ')} ${c.headline}`.toLowerCase();
+          let prefScore = 0;
+          const hayAll = `${c.displayName} ${c.headline} ${c.bio} ${c.division || ''} ${c.city} ${(c.areas || []).join(' ')} ${(c.categories || []).join(' ')} ${(c.interests || []).join(' ')} ${(c.skills || []).join(' ')}`.toLowerCase();
+          const catText = `${(c.categories || []).join(' ')} ${(c.interests || []).join(' ')} ${(c.skills || []).join(' ')} ${c.headline}`.toLowerCase();
           for (const token of parsedPref.searchTokens) {
-            if (catText.includes(token)) score += 3;
-            else if (hayAll.includes(token)) score += 1.5;
+            if (catText.includes(token)) prefScore += 3;
+            else if (hayAll.includes(token)) prefScore += 1.5;
           }
           const isBhai = /\(bhai\)|\bbhai\b|\bbrother\b/i.test(
             `${c.displayName} ${(c.categories || []).join(' ')}`
           );
-          if (parsedPref.preferredGender === 'female' && !isBhai) score += 12;
-          if (parsedPref.preferredGender === 'male' && isBhai) score += 12;
+          if (parsedPref.preferredGender === 'female') {
+            if (c.gender === 'female' || (!c.gender && !isBhai)) prefScore += 12;
+            else if (c.gender === 'male') prefScore -= 6;
+          }
+          if (parsedPref.preferredGender === 'male') {
+            if (c.gender === 'male' || (!c.gender && isBhai)) prefScore += 12;
+            else if (c.gender === 'female') prefScore -= 6;
+          }
           if (parsedPref.extractedTargetRate) {
             const diff = Math.abs((c.hourlyRateBdt || 0) - parsedPref.extractedTargetRate);
-            score += Math.max(0, 4 - diff / 400);
+            prefScore += Math.max(0, 4 - diff / 400);
           }
-          scoreMap.set(c.uid, score);
+          totalScore += prefScore;
+        }
+
+        if (totalScore > 0) {
+          scoreMap.set(c.uid, totalScore);
         }
         return true;
       });
 
-    if (preference && sort === 'top') {
+    if ((preference || queryTokens.length > 0) && sort === 'top') {
       list.sort((a, b) => {
         const diff = (scoreMap.get(b.uid) || 0) - (scoreMap.get(a.uid) || 0);
         if (Math.abs(diff) > 0.25) return diff;
@@ -218,6 +266,7 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
 
     res.json({
       companions: list,
+      matchedKeywords: queryTokens,
       matchMeta: preference ? parsedPref : undefined,
       division: effectiveDivision || 'All Bangladesh Divisions',
       divisions: BANGLADESH_DIVISIONS.map((d) => ({
@@ -284,7 +333,14 @@ marketplaceRouter.put('/customer/profile', requireAuth, async (req: Authenticate
     const now = new Date().toISOString();
 
     await Promise.all([
-      adminDb.collection('users').doc(uid).update({ fullName, city, area, photoUrl }),
+      adminDb.collection('users').doc(uid).update({
+        fullName,
+        city,
+        area,
+        photoUrl,
+        profileCompleted: true,
+        profileUpdatedAt: now,
+      }),
       adminDb.collection('customer_profiles').doc(uid).set(
         {
           uid,
@@ -316,12 +372,15 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
     const existing = existingSnap.exists ? existingSnap.data()! : null;
 
     const displayName = sanitizeString(req.body?.displayName || req.authUser!.fullName, 120);
-    const headline = sanitizeString(req.body?.headline || 'Social Companion', 160);
+    const headline = sanitizeString(req.body?.headline || 'সামাজিক সঙ্গী', 160);
     const bio = sanitizeString(req.body?.bio || '', 1500);
+    if (containsUnsafeViolenceTerm(headline) || containsUnsafeViolenceTerm(bio)) {
+      return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
+    }
     const city = sanitizeString(req.body?.city || 'Dhaka', 80);
     if (!isKnownBangladeshLocation(city)) {
       return res.status(400).json({
-        error: 'Please select a valid district or area within Bangladesh.',
+        error: 'দয়া করে বাংলাদেশের একটি সঠিক জেলা বা এলাকা নির্বাচন করুন।',
       });
     }
     const division =
@@ -332,12 +391,29 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
     const languages = Array.isArray(req.body?.languages)
       ? req.body.languages.slice(0, 8).map((l: unknown) => sanitizeString(l, 40)).filter(Boolean)
       : ['Bengali', 'English'];
-    const categories = Array.isArray(req.body?.categories)
-      ? req.body.categories
-          .slice(0, 12)
-          .map((c: unknown) => sanitizeString(c, 120))
-          .filter((c: string) => Boolean(c) && !containsUnsafeViolenceTerm(c))
-      : ['Dining & Coffee'];
+    const rawCategories = Array.isArray(req.body?.categories)
+      ? req.body.categories.slice(0, 12).map((c: unknown) => sanitizeString(c, 120)).filter(Boolean)
+      : ['চা ও সিগারেট ব্রেক আড্ডা'];
+    if (rawCategories.some((c: string) => containsUnsafeViolenceTerm(c))) {
+      return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
+    }
+    const categories = rawCategories;
+    const rawInterests = Array.isArray(req.body?.interests)
+      ? req.body.interests.slice(0, 12).map((i: unknown) => sanitizeString(i, 80)).filter(Boolean)
+      : Array.isArray(existing?.interests)
+        ? existing.interests
+        : [];
+    const rawSkills = Array.isArray(req.body?.skills)
+      ? req.body.skills.slice(0, 12).map((s: unknown) => sanitizeString(s, 80)).filter(Boolean)
+      : Array.isArray(existing?.skills)
+        ? existing.skills
+        : [];
+    if (
+      rawInterests.some((i: string) => containsUnsafeViolenceTerm(i)) ||
+      rawSkills.some((s: string) => containsUnsafeViolenceTerm(s))
+    ) {
+      return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
+    }
 
     const hourlyRateBdt = Math.max(500, Math.min(50000, Number(req.body?.hourlyRateBdt || 1500)));
     const sessionRateBdt = Math.max(1000, Math.min(150000, Number(req.body?.sessionRateBdt || 4000)));
@@ -367,6 +443,13 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
       160
     ).toLowerCase();
 
+    const cleanGender: 'male' | 'female' | undefined =
+      req.body?.gender === 'female'
+        ? 'female'
+        : req.body?.gender === 'male'
+          ? 'male'
+          : existing?.gender || req.authUser!.gender;
+
     const payload: CompanionProfile = {
       uid,
       displayName,
@@ -374,9 +457,12 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
       bio,
       city,
       division,
+      ...(cleanGender ? { gender: cleanGender } : {}),
       areas,
       languages,
       categories,
+      interests: rawInterests,
+      skills: rawSkills,
       hourlyRateBdt,
       sessionRateBdt,
       availabilityDays,
@@ -397,9 +483,22 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
 
     await adminDb.collection('companion_profiles').doc(uid).set(payload, { merge: true });
     if (req.authUser!.role === 'customer') {
-      await adminDb.collection('users').doc(uid).update({ role: 'companion', fullName: displayName, photoUrl });
+      await adminDb.collection('users').doc(uid).update({
+        role: 'companion',
+        fullName: displayName,
+        photoUrl,
+        profileCompleted: true,
+        profileUpdatedAt: now,
+        ...(cleanGender ? { gender: cleanGender } : {}),
+      });
     } else {
-      await adminDb.collection('users').doc(uid).update({ fullName: displayName, photoUrl });
+      await adminDb.collection('users').doc(uid).update({
+        fullName: displayName,
+        photoUrl,
+        profileCompleted: true,
+        profileUpdatedAt: now,
+        ...(cleanGender ? { gender: cleanGender } : {}),
+      });
     }
 
     res.json({ companionProfile: payload });
@@ -410,16 +509,29 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
 });
 
 // Submit 18+ Identity Verification Request (for Verification Admin review)
-marketplaceRouter.post('/verifications', requireAuth, async (req: AuthenticatedRequest, res) => {
+marketplaceRouter.post(
+  '/verifications',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.authUser!.uid;
     const { documentType, documentNumber, dateOfBirth, city } = req.body || {};
 
-    if (!['nid', 'passport', 'driving_license'].includes(documentType)) {
-      return res.status(400).json({ error: 'Valid ID document type required (NID, Passport, or Driving License).' });
+    if (!['nid', 'school_roll', 'student_id', 'passport', 'driving_license'].includes(documentType)) {
+      return res.status(400).json({
+        error: 'সঠিক ডকুমেন্ট ধরন দিন: NID, স্কুল রোল (School Roll), Student ID, Passport অথবা Driving License।',
+      });
     }
-    if (!documentNumber || String(documentNumber).trim().length < 6) {
-      return res.status(400).json({ error: 'Valid document number is required.' });
+    const trimmedDocNum = String(documentNumber || '').trim();
+    const minLen = documentType === 'school_roll' || documentType === 'student_id' ? 1 : 4;
+    if (!trimmedDocNum || trimmedDocNum.length < minLen) {
+      return res.status(400).json({
+        error:
+          documentType === 'school_roll' || documentType === 'student_id'
+            ? 'সঠিক স্কুল রোল / স্টুডেন্ট আইডি নম্বর দিন।'
+            : 'সঠিক ডকুমেন্ট নম্বর দিন (কমপক্ষে ৪ অক্ষর)।',
+      });
     }
     const age = calculateAgeFromDob(String(dateOfBirth || ''));
     if (age < 18) {
@@ -487,7 +599,11 @@ marketplaceRouter.get('/verifications/mine', requireAuth, async (req: Authentica
 // UBER-INSPIRED BOOKING SYSTEM
 // ========================
 
-marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedRequest, res) => {
+marketplaceRouter.post(
+  '/bookings',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
   try {
     const customerUid = req.authUser!.uid;
     const companionUid = sanitizeId(req.body?.companionUid);
@@ -495,9 +611,10 @@ marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedReques
       return res.status(400).json({ error: 'Select a valid companion other than yourself.' });
     }
 
-    const [cmpSnap, settingsSnap] = await Promise.all([
+    const [cmpSnap, settingsSnap, customerUserSnap] = await Promise.all([
       adminDb.collection('companion_profiles').doc(companionUid).get(),
       adminDb.collection('platform_settings').doc('main').get(),
+      adminDb.collection('users').doc(customerUid).get(),
     ]);
 
     if (!cmpSnap.exists) {
@@ -505,6 +622,10 @@ marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedReques
     }
     const cmp = cmpSnap.data() as CompanionProfile;
     const feePercent = Number(settingsSnap.data()?.serviceFeePercent ?? 12);
+    const availableCredits = Math.max(
+      0,
+      Math.round(Number(customerUserSnap.data()?.referralCreditsBdt || 0))
+    );
 
     const pricingType = req.body?.pricingType === 'session' ? 'session' : 'hourly';
     const durationHours =
@@ -512,9 +633,16 @@ marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedReques
     const baseTotal =
       pricingType === 'session' ? cmp.sessionRateBdt : cmp.hourlyRateBdt * durationHours;
 
-    const proposedTotalBdt = Math.max(500, Number(req.body?.proposedTotalBdt || baseTotal));
-    const platformFeeBdt = Math.round((proposedTotalBdt * feePercent) / 100);
-    const companionNetBdt = proposedTotalBdt - platformFeeBdt;
+    const originalTotalBdt = Math.max(500, Number(req.body?.proposedTotalBdt || baseTotal));
+    const requestedCredits = Math.max(0, Math.floor(Number(req.body?.creditsToApplyBdt || 0)));
+    const maxRedeemableCredits = Math.floor(originalTotalBdt * 0.5);
+    const creditsUsedBdt = Math.min(requestedCredits, availableCredits, maxRedeemableCredits);
+    const netBookingTotalBdt = Math.max(250, originalTotalBdt - creditsUsedBdt);
+
+    const advanceRequiredBdt = Math.round(netBookingTotalBdt / 2);
+    const remainingDueBdt = Math.max(0, netBookingTotalBdt - advanceRequiredBdt);
+    const platformFeeBdt = Math.round((netBookingTotalBdt * feePercent) / 100);
+    const companionNetBdt = netBookingTotalBdt - platformFeeBdt;
 
     const venueName = sanitizeString(req.body?.venueName, 160);
     const bookingCity = sanitizeString(req.body?.city || cmp.city || 'Dhaka', 80);
@@ -565,8 +693,14 @@ marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedReques
       startTime,
       pricingType,
       durationHours,
-      proposedTotalBdt,
-      agreedPriceBdt: proposedTotalBdt,
+      proposedTotalBdt: netBookingTotalBdt,
+      originalTotalBdt,
+      creditsUsedBdt,
+      agreedPriceBdt: netBookingTotalBdt,
+      advanceRequiredBdt,
+      advancePaidBdt: 0,
+      remainingDueBdt,
+      advanceStatus: 'unpaid',
       platformFeeBdt,
       companionNetBdt,
       status: 'requested',
@@ -580,11 +714,27 @@ marketplaceRouter.post('/bookings', requireAuth, async (req: AuthenticatedReques
 
     await adminDb.collection('bookings').doc(id).set(booking);
 
+    if (creditsUsedBdt > 0) {
+      const nextCreditsBalance = Math.max(0, availableCredits - creditsUsedBdt);
+      await adminDb.collection('users').doc(customerUid).update({
+        referralCreditsBdt: nextCreditsBalance,
+      });
+      await recordReferralTransaction({
+        userUid: customerUid,
+        type: 'redeemed_booking',
+        creditsBdt: -creditsUsedBdt,
+        balanceAfterBdt: nextCreditsBalance,
+        description: `বুকিং ${bookingCode} (${cmp.displayName})-এ রেফারেল ক্রেডিট পয়েন্ট ব্যবহার।`,
+        relatedBookingId: id,
+        relatedBookingCode: bookingCode,
+      });
+    }
+
     await createNotification({
       userUid: companionUid,
       type: 'booking_request',
       title: `New Booking Request (${bookingCode})`,
-      message: `${req.authUser!.fullName} requested ${durationHours}h on ${bookingDate} at ${venueName} for BDT ৳${proposedTotalBdt.toLocaleString()}.`,
+      message: `${req.authUser!.fullName} requested ${durationHours}h on ${bookingDate} at ${venueName} for BDT ৳${netBookingTotalBdt.toLocaleString()}.`,
       link: '/dashboard/companion',
     });
 
@@ -674,17 +824,24 @@ marketplaceRouter.post('/bookings/:id/respond', requireAuth, async (req: Authent
     const priceChanged = newPrice !== booking.proposedTotalBdt;
     const platformFeeBdt = Math.round((newPrice * feePercent) / 100);
     const companionNetBdt = newPrice - platformFeeBdt;
+    const advanceRequiredBdt = Math.round(newPrice / 2);
+    const advancePaidBdt = Number(booking.advancePaidBdt || 0);
+    const remainingDueBdt = Math.max(0, newPrice - advancePaidBdt);
 
-    // If companion accepts exact customer price, both parties have agreed -> ready for payment!
+    // If companion accepts exact customer price, both parties have agreed
     const customerAgreed = !priceChanged;
     const companionAgreed = true;
     const nextStatus =
       customerAgreed && companionAgreed
-        ? 'price_agreed_awaiting_payment'
+        ? booking.advanceStatus === 'paid'
+          ? 'confirmed_paid'
+          : 'price_agreed_awaiting_payment'
         : 'accepted_awaiting_agreement';
 
     await ref.update({
       agreedPriceBdt: newPrice,
+      advanceRequiredBdt,
+      remainingDueBdt,
       platformFeeBdt,
       companionNetBdt,
       customerAgreed,
@@ -727,7 +884,11 @@ marketplaceRouter.post('/bookings/:id/agree', requireAuth, async (req: Authentic
     const customerAgreed = uid === booking.customerUid ? true : booking.customerAgreed;
     const companionAgreed = uid === booking.companionUid ? true : booking.companionAgreed;
     const nextStatus =
-      customerAgreed && companionAgreed ? 'price_agreed_awaiting_payment' : booking.status;
+      customerAgreed && companionAgreed
+        ? booking.advanceStatus === 'paid'
+          ? 'confirmed_paid'
+          : 'price_agreed_awaiting_payment'
+        : booking.status;
 
     await ref.update({
       customerAgreed,
@@ -755,9 +916,13 @@ marketplaceRouter.post('/bookings/:id/complete', requireAuth, async (req: Authen
     if (uid !== booking.customerUid && uid !== booking.companionUid && !isAdminRole(req.authUser!.role)) {
       return res.status(403).json({ error: 'Forbidden.' });
     }
-    if (!['confirmed_paid', 'in_progress'].includes(booking.status) && booking.paymentStatus !== 'cash_pending') {
+    if (
+      !['confirmed_paid', 'in_progress'].includes(booking.status) &&
+      booking.paymentStatus !== 'cash_pending' &&
+      booking.advanceStatus !== 'paid'
+    ) {
       return res.status(400).json({
-        error: 'Booking must have verified payment (or approved cash arrangement) before completion.',
+        error: 'Booking must have verified payment (or 50% advance / approved cash arrangement) before completion.',
       });
     }
 
@@ -850,6 +1015,27 @@ marketplaceRouter.post('/bookings/:id/cancel', requireAuth, async (req: Authenti
       }
     }
 
+    // Refund used referral credits back to customer upon cancellation
+    const usedCredits = Math.max(0, Math.round(Number(booking.creditsUsedBdt || 0)));
+    if (usedCredits > 0) {
+      const custUserRef = adminDb.collection('users').doc(booking.customerUid);
+      const custUserSnap = await custUserRef.get();
+      if (custUserSnap.exists) {
+        const currentCredits = Math.max(0, Math.round(Number(custUserSnap.data()?.referralCreditsBdt || 0)));
+        const restoredBalance = currentCredits + usedCredits;
+        await custUserRef.update({ referralCreditsBdt: restoredBalance });
+        await recordReferralTransaction({
+          userUid: booking.customerUid,
+          type: 'refunded_booking',
+          creditsBdt: usedCredits,
+          balanceAfterBdt: restoredBalance,
+          description: `বুকিং ${booking.bookingCode} বাতিল হওয়ায় ব্যবহৃত ${usedCredits} ক্রেডিট ফেরত দেওয়া হয়েছে।`,
+          relatedBookingId: booking.id,
+          relatedBookingCode: booking.bookingCode,
+        });
+      }
+    }
+
     const otherUid = uid === booking.customerUid ? booking.companionUid : booking.customerUid;
     await createNotification({
       userUid: otherUid,
@@ -893,7 +1079,11 @@ marketplaceRouter.get('/bookings/:id/messages', requireAuth, async (req: Authent
   }
 });
 
-marketplaceRouter.post('/bookings/:id/messages', requireAuth, async (req: AuthenticatedRequest, res) => {
+marketplaceRouter.post(
+  '/bookings/:id/messages',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
   try {
     const id = sanitizeId(req.params.id);
     const body = sanitizeString(req.body?.body, 1000);
@@ -933,22 +1123,58 @@ marketplaceRouter.post('/bookings/:id/messages', requireAuth, async (req: Authen
   }
 });
 
+// Customer & Companion reviews lookup
+marketplaceRouter.get('/reviews/mine', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.authUser!.uid;
+    const [writtenSnap, receivedSnap] = await Promise.all([
+      adminDb.collection('reviews').where('customerUid', '==', uid).get(),
+      adminDb.collection('reviews').where('companionUid', '==', uid).get(),
+    ]);
+
+    const sortDesc = (a: any, b: any) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    const reviews = writtenSnap.docs.map((d) => d.data()).sort(sortDesc);
+    const reviewsReceived = receivedSnap.docs.map((d) => d.data()).sort(sortDesc);
+
+    res.json({ reviews, reviewsReceived });
+  } catch (err) {
+    console.error('Get my reviews error:', err);
+    res.status(500).json({ error: 'রিভিউ তথ্য লোড করা যায়নি।' });
+  }
+});
+
 // Submit review ONLY for completed booking
 marketplaceRouter.post('/reviews', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const bookingId = sanitizeId(req.body?.bookingId);
-    const rating = Math.max(1, Math.min(5, Math.round(Number(req.body?.rating || 5))));
+    const rawRating = Number(req.body?.rating);
+    if (!Number.isFinite(rawRating) || rawRating < 1 || rawRating > 5) {
+      return res.status(400).json({ error: 'দয়া করে ১ থেকে ৫ এর মধ্যে সঠিক স্টার রেটিং নির্বাচন করুন।' });
+    }
+    const rating = Math.round(rawRating);
     const comment = sanitizeString(req.body?.comment, 800);
+    if (!comment || comment.length < 3) {
+      return res.status(400).json({ error: 'আপনার অভিজ্ঞতা সম্পর্কে অন্তত কয়েকটি শব্দ লিখুন।' });
+    }
+
+    const rawTags = Array.isArray(req.body?.tags) ? req.body.tags : [];
+    const tags = Array.from(
+      new Set<string>(
+        rawTags
+          .map((t: unknown) => sanitizeString(t, 40))
+          .filter((t: string) => t.length > 0)
+      )
+    ).slice(0, 5);
 
     const bSnap = await adminDb.collection('bookings').doc(bookingId).get();
-    if (!bSnap.exists) return res.status(404).json({ error: 'Booking not found.' });
+    if (!bSnap.exists) return res.status(404).json({ error: 'বুকিং খুঁজে পাওয়া যায়নি।' });
     const booking = bSnap.data() as BookingRecord;
 
     if (booking.customerUid !== req.authUser!.uid) {
-      return res.status(403).json({ error: 'Only the booking customer can submit a review.' });
+      return res.status(403).json({ error: 'শুধুমাত্র এই বুকিংয়ের কাস্টমার রিভিউ দিতে পারবেন।' });
     }
     if (booking.status !== 'completed') {
-      return res.status(400).json({ error: 'Only completed bookings are eligible for reviews.' });
+      return res.status(400).json({ error: 'শুধুমাত্র সম্পন্ন হওয়া (Completed) বুকিংয়ের পর রিভিউ দেওয়া যায়।' });
     }
 
     const dupSnap = await adminDb
@@ -957,18 +1183,22 @@ marketplaceRouter.post('/reviews', requireAuth, async (req: AuthenticatedRequest
       .limit(1)
       .get();
     if (!dupSnap.empty) {
-      return res.status(409).json({ error: 'You have already reviewed this booking.' });
+      return res.status(409).json({ error: 'আপনি ইতিমধ্যেই এই বুকিংয়ের জন্য রিভিউ দিয়েছেন।' });
     }
 
     const revId = `REV_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
     const review = {
       id: revId,
       bookingId,
+      bookingCode: booking.bookingCode || '',
+      category: booking.category || '',
       customerUid: booking.customerUid,
       companionUid: booking.companionUid,
+      companionName: booking.companionName || '',
       customerName: req.authUser!.fullName,
       rating,
       comment,
+      tags,
       createdAt: new Date().toISOString(),
     };
 
@@ -986,9 +1216,18 @@ marketplaceRouter.post('/reviews', requireAuth, async (req: AuthenticatedRequest
       reviewCount: ratings.length,
     });
 
+    await createNotification({
+      userUid: booking.companionUid,
+      type: 'review_received',
+      title: `নতুন ${rating}★ রিভিউ পেয়েছেন (${booking.bookingCode})`,
+      message: `${req.authUser!.fullName} আপনার সম্পর্কে "${comment.slice(0, 70)}${comment.length > 70 ? '...' : ''}" রিভিউ দিয়েছেন।`,
+      link: `/companions/${booking.companionUid}`,
+    });
+
     res.status(201).json({ review });
   } catch (err) {
-    res.status(500).json({ error: 'Failed to submit review.' });
+    console.error('Submit review error:', err);
+    res.status(500).json({ error: 'রিভিউ সংরক্ষণ করা যায়নি।' });
   }
 });
 
@@ -1130,5 +1369,63 @@ marketplaceRouter.post('/notifications/read-all', requireAuth, async (req: Authe
     res.json({ updated: snap.size });
   } catch (err) {
     res.status(500).json({ error: 'Failed to mark notifications read.' });
+  }
+});
+
+// ========================
+// USER REFERRAL & CREDITS SYSTEM
+// ========================
+
+marketplaceRouter.get('/referrals/validate', async (req, res) => {
+  try {
+    const code = sanitizeString(req.query.code, 32).trim().toUpperCase();
+    if (!code) {
+      return res.json({ valid: false, signupBonusCredits: REFERRED_WELCOME_CREDITS });
+    }
+    const referrer = await findUserByReferralCode(code);
+    if (!referrer) {
+      return res.json({ valid: false, signupBonusCredits: REFERRED_WELCOME_CREDITS });
+    }
+    res.json({
+      valid: true,
+      referralCode: referrer.referralCode,
+      referrerName: referrer.fullName,
+      signupBonusCredits: REFERRED_WELCOME_CREDITS,
+      referrerBonusCredits: REFERRER_BONUS_CREDITS,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Unable to validate referral code.' });
+  }
+});
+
+marketplaceRouter.get('/referrals/me', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const uid = req.authUser!.uid;
+    const refMeta = await ensureUserReferralCode(req.authUser!);
+
+    const [refsSnap, txSnap] = await Promise.all([
+      adminDb.collection('referrals').where('referrerUid', '==', uid).get(),
+      adminDb.collection('referral_transactions').where('userUid', '==', uid).get(),
+    ]);
+
+    const referrals = refsSnap.docs
+      .map((d) => d.data())
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const transactions = txSnap.docs
+      .map((d) => d.data())
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+
+    res.json({
+      referralCode: refMeta.referralCode,
+      referralCreditsBdt: refMeta.referralCreditsBdt,
+      referralCount: refMeta.referralCount || referrals.length,
+      referrerBonusCredits: REFERRER_BONUS_CREDITS,
+      signupBonusCredits: REFERRED_WELCOME_CREDITS,
+      referrals,
+      transactions,
+    });
+  } catch (err) {
+    console.error('Get referrals error:', err);
+    res.status(500).json({ error: 'Unable to load referral details.' });
   }
 });

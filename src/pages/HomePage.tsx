@@ -11,8 +11,12 @@ import {
   Star,
 } from 'lucide-react';
 import { CompanionCard } from '../components/CompanionCard.tsx';
+import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
+import { PaymentGatewayLogo } from '../components/PaymentGatewayLogo.tsx';
+import heroDhakaLounge from '../assets/images/hero_dhaka_lounge_1794647508278.jpg';
 import { useAuth } from '../context/AuthContext.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
+import { DEFAULT_BENGALI_BOOKING_CATEGORIES } from '../data/bookingCategories.ts';
 import { apiRequest, formatBdt } from '../lib/api.ts';
 import type { CompanionProfile } from '../types/logeasi.ts';
 
@@ -43,17 +47,20 @@ export function HomePage() {
     if (topTab === 'bhai') {
       return (
         c.displayName.toLowerCase().includes('bhai') ||
-        (c.categories || []).some((cat) => cat.toLowerCase().includes('bhai'))
+        c.displayName.includes('ভাই') ||
+        (c.categories || []).some((cat) =>
+          /bhai|ভাই|টং|আড্ডা|সাপোর্ট|গ্যাঞ্জাম/i.test(cat)
+        )
       );
     }
     if (topTab === 'events') {
       return (c.categories || []).some((cat) =>
-        /corporate|event|dining|coffee|cultural/i.test(cat)
+        /corporate|event|dining|coffee|cultural|ঘোরা|চা|কফি|ইভেন্ট|পারিবারিক|ডিনার/i.test(cat)
       );
     }
     if (topTab === 'assistance') {
       return (c.categories || []).some((cat) =>
-        /assistance|errands|senior|shopping/i.test(cat)
+        /assistance|errands|senior|shopping|সহায়তা|বাজার|হাসপাতাল|ভ্রমণ|পড়াশোনা/i.test(cat)
       );
     }
     return true;
@@ -75,14 +82,14 @@ export function HomePage() {
             <div className="lg:col-span-6 flex flex-col justify-between space-y-8">
               <div className="space-y-5">
                 <p className="text-xs font-mono uppercase tracking-widest text-blue-400">
-                  BANGLADESH’S 8 DIVISIONS · 18+ VERIFIED COMPANIONSHIP
+                  বাংলাদেশের ৮টি বিভাগ · ১৮+ যাচাইকৃত নিরাপদ সঙ্গী
                 </p>
-                <h1 className="font-display text-4xl sm:text-5xl lg:text-[3.25rem] font-extrabold tracking-tight text-white leading-[1.06] text-balance">
-                  Your Time. Your Choice. Your Companion.
+                <h1 className="font-display text-4xl sm:text-5xl lg:text-[3.25rem] font-extrabold tracking-tight text-white leading-[1.08] text-balance">
+                  আপনার সময়। আপনার পছন্দ। আপনার সঙ্গী।
                 </h1>
                 <p className="text-base sm:text-lg text-slate-300 leading-relaxed max-w-xl">
                   {platformPublic.featuredHeadline ||
-                    'Book verified 18+ companions & trusted Bhai/Brother escorts across all 8 Divisions of Bangladesh for public events, dining, business outings, and everyday assistance.'}
+                    'বাংলাদেশের ৮টি বিভাগে চা-কফি আড্ডা, ঘোরাফেরা, ইভেন্ট ও শান্তিপূর্ণ কাজের সহায়তার জন্য ১৮+ যাচাইকৃত সঙ্গী এবং বিশ্বস্ত ভাই/বন্ধু বুক করুন।'}
                 </p>
               </div>
 
@@ -96,10 +103,10 @@ export function HomePage() {
                   <select
                     value={divisionInput}
                     onChange={(e) => setDivisionInput(e.target.value)}
-                    aria-label="Select Bangladesh division"
+                    aria-label="বাংলাদেশের বিভাগ নির্বাচন করুন"
                     className="w-full text-sm text-white bg-transparent focus:outline-none"
                   >
-                    <option value="all" className="text-slate-900">All 8 Bangladesh Divisions</option>
+                    <option value="all" className="text-slate-900">বাংলাদেশের সকল ৮ বিভাগ</option>
                     {BANGLADESH_DIVISIONS.map((div) => (
                       <option key={div.id} value={div.id} className="text-slate-900">
                         {div.label}
@@ -113,16 +120,18 @@ export function HomePage() {
                   <select
                     value={categoryInput}
                     onChange={(e) => setCategoryInput(e.target.value)}
-                    aria-label="Select category"
+                    aria-label="ক্যাটাগরি নির্বাচন করুন"
                     className="w-full text-sm text-white bg-transparent focus:outline-none"
                   >
-                    <option value="all" className="text-slate-900">All Categories</option>
-                    <option value="Bhai / Brother Companion" className="text-slate-900">Bhai / Brother Companion</option>
-                    <option value="Corporate Events" className="text-slate-900">Corporate Events</option>
-                    <option value="Public Events" className="text-slate-900">Public Events</option>
-                    <option value="Dining & Coffee" className="text-slate-900">Dining & Coffee</option>
-                    <option value="Everyday Assistance" className="text-slate-900">Everyday Assistance</option>
-                    <option value="Cultural & Galleries" className="text-slate-900">Cultural & Galleries</option>
+                    <option value="all" className="text-slate-900">সকল ক্যাটাগরি</option>
+                    {(platformPublic.bookingCategories?.length
+                      ? platformPublic.bookingCategories
+                      : DEFAULT_BENGALI_BOOKING_CATEGORIES
+                    ).map((cat) => (
+                      <option key={cat} value={cat} className="text-slate-900">
+                        {cat}
+                      </option>
+                    ))}
                   </select>
                 </div>
 
@@ -130,7 +139,7 @@ export function HomePage() {
                   type="submit"
                   className="sm:col-span-3 py-2.5 px-4 bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap cursor-pointer"
                 >
-                  Find Companion
+                  সঙ্গী খুঁজুন
                 </button>
               </form>
 
@@ -140,7 +149,7 @@ export function HomePage() {
                   onClick={() => navigate('/become-companion')}
                   className="font-semibold text-white hover:text-blue-300 inline-flex items-center gap-1.5 cursor-pointer"
                 >
-                  Become a Companion <ArrowRight className="w-4 h-4" />
+                  সঙ্গী হিসেবে যোগ দিন <ArrowRight className="w-4 h-4" />
                 </button>
                 <span aria-hidden="true" className="text-slate-700">|</span>
                 <button
@@ -148,7 +157,7 @@ export function HomePage() {
                   onClick={() => navigate(user ? (user.role === 'companion' ? '/dashboard/companion' : '/dashboard/customer') : '/auth?tab=register')}
                   className="font-semibold text-blue-400 hover:text-blue-300 cursor-pointer"
                 >
-                  {user ? `Open ${user.fullName} Dashboard` : 'Create Free 18+ Account'}
+                  {user ? `${user.fullName}-এর ড্যাশবোর্ড খুলুন` : 'ফ্রি ১৮+ অ্যাকাউন্ট তৈরি করুন'}
                 </button>
               </div>
             </div>
@@ -156,8 +165,8 @@ export function HomePage() {
             <div className="lg:col-span-6">
               <div className="relative h-72 sm:h-96 lg:h-full min-h-[380px] rounded-2xl overflow-hidden border border-slate-700/80 bg-slate-900 shadow-2xl">
                 <img
-                  src="/src/assets/images/hero_dhaka_lounge_1794647508278.jpg"
-                  alt="Two adults enjoying a social coffee conversation at a bright Gulshan lounge in Dhaka"
+                  src={heroDhakaLounge}
+                  alt="ঢাকার একটি পাবলিক লাউঞ্জে দুজন প্রাপ্তবয়স্ক মানুষের সামাজিক কফি আড্ডা"
                   referrerPolicy="no-referrer"
                   className="w-full h-full object-cover"
                 />
@@ -165,15 +174,15 @@ export function HomePage() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <p className="text-xs font-mono text-blue-300 uppercase tracking-wider">
-                        PUBLIC VENUES · DHAKA TO SYLHET & CHATTOGRAM
+                        পাবলিক স্থান · ঢাকা থেকে সিলেট ও চট্টগ্রাম
                       </p>
                       <p className="text-sm sm:text-base text-white font-semibold mt-1">
-                        Strict non-sexual social companionship backed by 18+ NID verification.
+                        ১৮+ NID/স্কুল রোল ভেরিফায়েড সম্পূর্ণ অ-যৌন ও নিরাপদ সামাজিক সঙ্গ।
                       </p>
                     </div>
                     <div className="text-right font-mono text-xs text-slate-300 tabular-nums">
                       <p className="text-white font-bold text-sm">BDT (৳)</p>
-                      <p>bKash · Nagad · Cash</p>
+                      <p>বিকাশ · নগদ · ক্যাশ</p>
                     </div>
                   </div>
                 </div>
@@ -186,37 +195,37 @@ export function HomePage() {
             <div className="space-y-1">
               <p className="text-sm font-semibold text-white flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4 text-blue-400" />
-                01. Adult 18+ ID Verification
+                ০১. ১৮+ পরিচয় যাচাইকরণ
               </p>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Companions undergo NID or Passport date-of-birth checks before earning verified status.
+                ভেরিফায়েড ব্যাজ পাওয়ার আগে সকল সঙ্গীর NID, স্কুল রোল বা পাসপোর্ট বয়স যাচাই করা হয়।
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-white flex items-center gap-2">
                 <CalendarCheck className="w-4 h-4 text-blue-400" />
-                02. Mutual Price Agreement
+                ০২. পারস্পরিক মূল্য চুক্তি
               </p>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Submit a request, agree on final BDT pricing together, then confirm with checkout.
+                রিকোয়েস্ট পাঠিয়ে উভয় পক্ষের সম্মতিতে চূড়ান্ত BDT রেট ঠিক করে বুকিং কনফার্ম করুন।
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-white flex items-center gap-2">
                 <CreditCard className="w-4 h-4 text-blue-400" />
-                03. Verified BDT Payments
+                ০৩. নিরাপদ BDT পেমেন্ট
               </p>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Supports Personal bKash, Personal Nagad, Rocket, SSLCommerz & permitted cash.
+                পার্সোনাল বিকাশ, পার্সোনাল নগদ, রকেট, SSLCommerz ও সীমিত ক্যাশ পেমেন্ট সাপোর্ট করে।
               </p>
             </div>
             <div className="space-y-1">
               <p className="text-sm font-semibold text-white flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-blue-400" />
-                04. Public-Space Safeguards
+                ০৪. পাবলিক স্থান নিরাপত্তা
               </p>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Strictly public outings, events, and everyday assistance with 24/7 reporting and blocking.
+                সর্বদা পাবলিক আউটিং, ইভেন্ট ও শান্তিপূর্ণ সহায়তা এবং ২৪/৭ রিপোর্ট ও ব্লক সুবিধা।
               </p>
             </div>
           </div>
@@ -230,7 +239,7 @@ export function HomePage() {
             <div className="flex items-center gap-2">
               <Compass className="w-4 h-4 text-blue-700" />
               <h2 className="font-display text-lg font-bold text-slate-950">
-                Browse Companions by Bangladesh Division
+                বাংলাদেশের বিভাগ অনুযায়ী সঙ্গী খুঁজুন
               </h2>
             </div>
             <button
@@ -238,7 +247,7 @@ export function HomePage() {
               onClick={() => navigate('/explore')}
               className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
             >
-              Open Interactive Regional Filter →
+              আঞ্চলিক ফিল্টার খুলুন →
             </button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5">
@@ -253,7 +262,7 @@ export function HomePage() {
                   {div.shortLabel}
                 </p>
                 <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                  {div.metroAreas[0]} · {div.districts.length} dist
+                  {div.metroAreas[0]} · {div.districts.length} জেলা
                 </p>
               </button>
             ))}
@@ -266,13 +275,13 @@ export function HomePage() {
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <p className="text-xs font-mono font-semibold text-blue-700 uppercase tracking-wider flex items-center gap-1.5">
-              <Award className="w-4 h-4" /> Bangladesh Top 100 Leaderboard
+              <Award className="w-4 h-4" /> বাংলাদেশ টপ ১০০ লিডারবোর্ড
             </p>
             <h2 className="font-display text-2xl sm:text-3xl font-bold text-slate-950 tracking-tight mt-1">
-              Top 100 Verified Bhai / Brother & Companions
+              টপ ১০০ যাচাইকৃত ভাই / বন্ধু ও সামাজিক সঙ্গী
             </h2>
             <p className="text-sm text-slate-600 mt-1">
-              Ranked marketplace catalog across Bangladesh — compare ratings, Instagram/WhatsApp channels, completed sessions, and hourly BDT rates.
+              সারা বাংলাদেশের যাচাইকৃত ক্যাটালগ — রেটিং, ইনস্টাগ্রাম/হোয়াটসঅ্যাপ ও ঘণ্টা প্রতি BDT রেট তুলনা করুন।
             </p>
           </div>
           <button
@@ -280,7 +289,7 @@ export function HomePage() {
             onClick={() => navigate('/explore')}
             className="text-sm font-semibold text-blue-700 hover:text-blue-800 inline-flex items-center gap-1.5 whitespace-nowrap cursor-pointer"
           >
-            Browse Full Top 100 Directory <ArrowRight className="w-4 h-4" />
+            সম্পূর্ণ টপ ১০০ ডিরেক্টরি দেখুন <ArrowRight className="w-4 h-4" />
           </button>
         </div>
 
@@ -288,10 +297,10 @@ export function HomePage() {
         <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl p-2 shadow-sm">
           <div className="flex flex-wrap gap-1.5 text-xs font-semibold">
             {[
-              { id: 'all', label: 'All Top 100' },
-              { id: 'bhai', label: 'Bhai / Brother Escorts' },
-              { id: 'events', label: 'Events & Dining' },
-              { id: 'assistance', label: 'Hospital, Errands & Senior Care' },
+              { id: 'all', label: 'সকল টপ ১০০' },
+              { id: 'bhai', label: 'ভাই / বন্ধু সঙ্গী' },
+              { id: 'events', label: 'ইভেন্ট ও চা-কফি আড্ডা' },
+              { id: 'assistance', label: 'হাসপাতাল, শপিং ও সহায়তা' },
             ].map((t) => (
               <button
                 key={t.id}
@@ -308,7 +317,7 @@ export function HomePage() {
             ))}
           </div>
           <span className="text-xs font-mono text-slate-500 px-3 tabular-nums">
-            Showing {filteredTop100.length} of Top 100 · All Bangladesh
+            দেখানো হচ্ছে {filteredTop100.length} জন · সারা বাংলাদেশ
           </span>
         </div>
 
@@ -320,7 +329,7 @@ export function HomePage() {
           </div>
         ) : filteredTop100.length === 0 ? (
           <div className="bg-white border border-slate-200 rounded-2xl p-10 text-center">
-            <p className="text-sm text-slate-600">No companions matched this category filter yet.</p>
+            <p className="text-sm text-slate-600">এই ক্যাটাগরিতে এখনো কোনো সঙ্গী পাওয়া যায়নি।</p>
           </div>
         ) : (
           <div className="space-y-8">
@@ -339,22 +348,22 @@ export function HomePage() {
               <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
                 <div className="px-5 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 bg-slate-50">
                   <h3 className="font-display text-sm font-bold text-slate-950">
-                    Top 100 Ranked Catalog List (Bangladesh Nationwide)
+                    টপ ১০০ র‍্যাঙ্কড তালিকা (সারা বাংলাদেশ)
                   </h3>
                   <span className="text-xs text-slate-500 font-mono">
-                    1. bKash Personal · 2. Nagad Personal ({platformPublic.nagadPersonalNumber || '01877pokpok'})
+                    ১. বিকাশ পার্সোনাল · ২. নগদ পার্সোনাল ({platformPublic.nagadPersonalNumber || '01877pokpok'})
                   </span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-xs">
                     <thead>
                       <tr className="border-b border-slate-200 text-slate-500">
-                        <th className="py-2.5 px-4">Rank</th>
-                        <th className="py-2.5 px-4">Companion / Bhai</th>
-                        <th className="py-2.5 px-4">Division & City</th>
-                        <th className="py-2.5 px-4">Rating & Jobs</th>
-                        <th className="py-2.5 px-4 text-right">Hourly</th>
-                        <th className="py-2.5 px-4 text-right">Action</th>
+                        <th className="py-2.5 px-4">র‍্যাঙ্ক</th>
+                        <th className="py-2.5 px-4">সঙ্গী / ভাই</th>
+                        <th className="py-2.5 px-4">বিভাগ ও জেলা</th>
+                        <th className="py-2.5 px-4">রেটিং ও কাজ</th>
+                        <th className="py-2.5 px-4 text-right">ঘণ্টা প্রতি</th>
+                        <th className="py-2.5 px-4 text-right">বুকিং</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -379,11 +388,11 @@ export function HomePage() {
                           <td className="py-3 px-4 font-mono tabular-nums text-slate-800">
                             <span className="inline-flex items-center gap-1">
                               <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                              {c.ratingAvg.toFixed(2)} ({c.completedBookings} bookings)
+                              {c.ratingAvg.toFixed(2)} ({c.completedBookings} বুকিং)
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right font-mono font-semibold text-slate-950 tabular-nums">
-                            {formatBdt(c.hourlyRateBdt)}/hr
+                            {formatBdt(c.hourlyRateBdt)}/ঘণ্টা
                           </td>
                           <td className="py-3 px-4 text-right">
                             <button
@@ -391,7 +400,7 @@ export function HomePage() {
                               onClick={() => navigate(`/booking/checkout/${c.uid}`)}
                               className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg cursor-pointer whitespace-nowrap"
                             >
-                              Book Now
+                              বুক করুন
                             </button>
                           </td>
                         </tr>
@@ -410,37 +419,47 @@ export function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="max-w-2xl mb-10">
             <h2 className="font-display text-2xl sm:text-3xl font-bold tracking-tight">
-              An Uber-Inspired Booking Workflow Built for Trust
+              আস্থার সাথে সাজানো সহজ ৩ ধাপের বুকিং প্রক্রিয়া
             </h2>
             <p className="text-sm text-slate-300 mt-2 leading-relaxed">
-              Every step from discovery to payout reconciliation follows clear milestones so both customers and companions stay protected.
+              সঙ্গী খোঁজা থেকে শুরু করে পেমেন্ট ও সেশন সম্পন্ন হওয়া পর্যন্ত প্রতিটি ধাপ স্বচ্ছ ও নিরাপদ।
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
-              <p className="font-mono text-xs text-blue-400">STEP 01 — DISCOVER & REQUEST</p>
-              <h3 className="font-display text-lg font-semibold">Search, Compare & Request</h3>
+              <p className="font-mono text-xs text-blue-400">ধাপ ০১ — খুঁজুন ও অনুরোধ করুন</p>
+              <h3 className="font-display text-lg font-semibold">সার্চ, তুলনা ও রিকোয়েস্ট</h3>
               <p className="text-sm text-slate-300 leading-relaxed">
-                Filter by Bangladesh Division, district, verified rating, languages, and BDT hourly or session pricing. Submit your public venue, date, and duration.
+                বাংলাদেশের বিভাগ, জেলা, রেটিং, ভাষা এবং ঘণ্টা প্রতি BDT রেট অনুযায়ী সঙ্গী খুঁজুন। পাবলিক স্থান, তারিখ ও সময় উল্লেখ করে রিকোয়েস্ট পাঠান।
               </p>
             </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
-              <p className="font-mono text-xs text-blue-400">STEP 02 — AGREE & CHECKOUT</p>
-              <h3 className="font-display text-lg font-semibold">Mutual Agreement & Payment</h3>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-3">
+              <p className="font-mono text-xs text-blue-400">ধাপ ০২ — সম্মতি ও পেমেন্ট</p>
+              <h3 className="font-display text-lg font-semibold">পারস্পরিক চুক্তি ও চেকআউট</h3>
               <p className="text-sm text-slate-300 leading-relaxed">
-                The companion accepts or proposes an updated rate. Once both agree, complete checkout via Personal bKash, Personal Nagad, Rocket, SSLCommerz, or permitted cash.
+                সঙ্গী রিকোয়েস্ট গ্রহণ করলে পার্সোনাল বিকাশ, পার্সোনাল নগদ, অ্যাডমিন কাস্টম, বেনসন সিগারেট (১,০০০৳ = ৩ প্যাকেট), রকেট, SSLCommerz অথবা ক্যাশে পেমেন্ট সম্পন্ন করুন।
               </p>
+              <div className="flex flex-wrap items-center gap-2 pt-1">
+                {(['bkash', 'nagad', 'custom', 'benson', 'rocket', 'sslcommerz', 'cash'] as const).map((gw) => (
+                  <PaymentGatewayLogo key={gw} gateway={gw} size="xs" />
+                ))}
+              </div>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-2">
-              <p className="font-mono text-xs text-blue-400">STEP 03 — MEET & REVIEW</p>
-              <h3 className="font-display text-lg font-semibold">Verified Meetup & Payout</h3>
+              <p className="font-mono text-xs text-blue-400">ধাপ ০৩ — মিটআপ ও রিভিউ</p>
+              <h3 className="font-display text-lg font-semibold">সফল সেশন ও পেআউট</h3>
               <p className="text-sm text-slate-300 leading-relaxed">
-                Verified payments unlock instant booking confirmation. After session completion, funds release to companion balance and verified reviews open.
+                পেমেন্ট যাচাই হওয়ার সাথে সাথে বুকিং কনফার্ম হয়। মিটআপ শেষে সঙ্গীর ব্যালেন্স রিলিজ হয় এবং আপনি যাচাইকৃত রিভিউ দিতে পারবেন।
               </p>
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Prominent Platform Developer Spotlight */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12">
+        <DeveloperBanner variant="spotlight" />
       </section>
     </main>
   );

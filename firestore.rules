@@ -84,6 +84,30 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Referrals: readable only by referrer, referred user, or active admin; mutations strictly server-mediated
+    match /referrals/{referralId} {
+      allow get: if isValidId(referralId) && isSignedIn() && (
+        resource.data.referrerUid == request.auth.uid ||
+        resource.data.referredUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && (
+        resource.data.referrerUid == request.auth.uid ||
+        resource.data.referredUid == request.auth.uid
+      );
+      allow write: if false;
+    }
+
+    // Referral credit ledger: readable only by owning user or active admin; mutations strictly server-mediated
+    match /referral_transactions/{txId} {
+      allow get: if isValidId(txId) && isSignedIn() && (
+        resource.data.userUid == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isSignedIn() && resource.data.userUid == request.auth.uid;
+      allow write: if false;
+    }
+
     // Sensitive operational, financial, RBAC, verification, and security collections:
     // Strictly mediated by authenticated server-side RBAC endpoints via Firebase Admin SDK
     match /admin_accounts/{adminUid} { allow read, write: if false; }

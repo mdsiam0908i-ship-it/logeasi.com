@@ -10,6 +10,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
 import { apiRequest, setStoredSessionToken } from '../lib/api.ts';
@@ -19,29 +20,29 @@ export function HowItWorksPage() {
   const { navigate } = useAuth();
   const steps = [
     {
-      num: '01',
-      title: 'Verify Your 18+ Account',
-      desc: 'Register with Google, verified Bangladesh phone OTP, or email. Only adults aged 18+ may register, book, or offer services.',
+      num: '০১',
+      title: 'আপনার ১৮+ অ্যাকাউন্ট যাচাই করুন',
+      desc: 'Google, বাংলাদেশি ফোন OTP অথবা ইমেইল দিয়ে নিবন্ধন করুন। শুধুমাত্র ১৮ বছর বা তার বেশি বয়সী প্রাপ্তবয়স্করা বুকিং বা সঙ্গী সেবা দিতে পারবেন।',
     },
     {
-      num: '02',
-      title: 'Search & Compare Companions Across Bangladesh',
-      desc: 'Filter verified Top 100 Bhai/Brother & companion profiles across all 8 Bangladesh Divisions (Dhaka, Chittagong, Sylhet, Rajshahi, Khulna, Barishal, Rangpur, Mymensingh) by area, rating, languages, and BDT rates.',
+      num: '০২',
+      title: 'বাংলাদেশের সব বিভাগে সঙ্গী খুঁজুন ও তুলনা করুন',
+      desc: 'ঢাকা, চট্টগ্রাম, সিলেট, রাজশাহী, খুলনা, বরিশাল, রংপুর ও ময়মনসিংহ—এই ৮টি বিভাগের সেরা ১০০ ভাই/বন্ধু ও সঙ্গী প্রোফাইল এলাকা, রেটিং, ভাষা ও BDT রেট অনুযায়ী ফিল্টার করুন।',
     },
     {
-      num: '03',
-      title: 'Request & Agree on Final Price',
-      desc: 'Submit your public venue, date, and duration. The companion accepts or proposes an adjusted BDT quote. Both parties confirm before payment.',
+      num: '০৩',
+      title: 'বুকিং অনুরোধ ও চূড়ান্ত মূল্য সম্মতি',
+      desc: 'পাবলিক ভেন্যু, তারিখ ও সময়সীমা দিয়ে অনুরোধ পাঠান। সঙ্গী প্রোফাইল প্রস্তাব গ্রহণ করলে বা নতুন BDT কোট দিলে উভয় পক্ষের সম্মতির পর পেমেন্ট আনলক হবে।',
     },
     {
-      num: '04',
-      title: 'Pay Securely via Verified Gateways',
-      desc: 'Checkout with Personal bKash, Personal Nagad, Rocket, SSLCommerz, or permitted cash. Digital transactions are verified through server callbacks.',
+      num: '০৪',
+      title: 'যাচাইকৃত মাধ্যমে নিরাপদ পেমেন্ট',
+      desc: 'পার্সোনাল bKash, পার্সোনাল Nagad, Rocket, SSLCommerz বা অনুমোদিত ক্যাশের মাধ্যমে পেমেন্ট সম্পন্ন করুন। প্রতিটি অনলাইন লেনদেন সার্ভার-স্বাক্ষরিতভাবে যাচাই করা হয়।',
     },
     {
-      num: '05',
-      title: 'Public Meetup, Completion & Review',
-      desc: 'Meet strictly at public venues (cafés, corporate events, malls, cultural halls). Once completed, companion earnings release and you can submit a verified review.',
+      num: '০৫',
+      title: 'পাবলিক স্থানে সাক্ষাৎ, সমাপ্তি ও রিভিউ',
+      desc: 'সর্বদা রেস্তোরাঁ, টং চা স্টল, শপিং মল, কর্পোরেট ইভেন্ট বা পাবলিক স্থানে দেখা করুন। সেশন শেষে সঙ্গীর আয় রিলিজ হয় এবং আপনি যাচাইকৃত রিভিউ দিতে পারেন।',
     },
   ];
 
@@ -49,10 +50,10 @@ export function HowItWorksPage() {
     <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <div className="space-y-3">
         <h1 className="font-display text-3xl sm:text-4xl font-bold text-slate-950 tracking-tight">
-          How LOGEASI.COM Works
+          LOGEASI.COM কীভাবে কাজ করে
         </h1>
         <p className="text-base text-slate-600 max-w-2xl">
-          A transparent, safe, Uber-inspired social companionship marketplace designed for verified adults across Bangladesh.
+          বাংলাদেশের প্রাপ্তবয়স্ক (১৮+) ব্যবহারকারীদের জন্য একটি স্বচ্ছ, নিরাপদ ও নির্ভরযোগ্য সামাজিক সঙ্গী মার্কেটপ্লেস।
         </p>
       </div>
 
@@ -74,16 +75,18 @@ export function HowItWorksPage() {
           onClick={() => navigate('/explore')}
           className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg cursor-pointer"
         >
-          Browse Companions
+          সঙ্গী খুঁজুন
         </button>
         <button
           type="button"
           onClick={() => navigate('/safety')}
           className="px-5 py-2.5 border border-slate-300 hover:bg-slate-50 text-slate-800 text-sm font-semibold rounded-lg cursor-pointer"
         >
-          Read Safety Standards
+          নিরাপত্তা নীতিমালা পড়ুন
         </button>
       </div>
+
+      <DeveloperBanner variant="card" />
     </main>
   );
 }
@@ -97,8 +100,11 @@ export function BecomeCompanionPage() {
   const [dateOfBirth, setDateOfBirth] = useState('1996-05-14');
   const [division, setDivision] = useState(companionProfile?.division || 'Dhaka');
   const [city, setCity] = useState(companionProfile?.city || 'Dhaka');
+  const [gender, setGender] = useState<'male' | 'female'>(
+    companionProfile?.gender || user?.gender || 'male'
+  );
   const [headline, setHeadline] = useState(
-    companionProfile?.headline || 'Verified Social Companion · Public Events & Everyday Assistance'
+    companionProfile?.headline || 'যাচাইকৃত সামাজিক সঙ্গী · আড্ডা, ভ্রমণ ও দৈনন্দিন সহায়তা'
   );
   const [bio, setBio] = useState(companionProfile?.bio || '');
   const [hourlyRateBdt, setHourlyRateBdt] = useState(companionProfile?.hourlyRateBdt || 1500);
@@ -148,7 +154,7 @@ export function BecomeCompanionPage() {
     setSuccess('');
 
     if (!adultConfirmed) {
-      setError('You must confirm you are aged 18+ to register as a companion.');
+      setError('সঙ্গী হিসেবে নিবন্ধন করতে আপনার বয়স ১৮+ হওয়া নিশ্চিত করতে হবে।');
       return;
     }
 
@@ -164,6 +170,7 @@ export function BecomeCompanionPage() {
             dateOfBirth,
             city,
             division,
+            gender,
             role: 'companion',
             phone: whatsappNumber,
             instagramHandle,
@@ -180,7 +187,7 @@ export function BecomeCompanionPage() {
           setStoredSessionToken(res.sessionToken);
         }
         await refreshSession();
-        setSuccess('Companion profile created! Redirecting to your Companion Dashboard...');
+        setSuccess('সঙ্গী প্রোফাইল তৈরি হয়েছে! আপনার সঙ্গী ড্যাশবোর্ডে নিয়ে যাওয়া হচ্ছে...');
         setTimeout(() => navigate('/dashboard/companion'), 400);
       } else {
         await apiRequest('/api/companion/profile', {
@@ -191,9 +198,10 @@ export function BecomeCompanionPage() {
             bio,
             city,
             division,
+            gender,
             areas: [city === 'Dhaka' ? 'Gulshan' : city],
             languages: companionProfile?.languages || ['Bengali', 'English'],
-            categories: companionProfile?.categories || ['Bhai / Brother Companion', 'Dining & Coffee'],
+            categories: companionProfile?.categories || ['টং এর আড্ডার রাজা (টং চা ও গল্প)', 'ঘোরা ফেরা ও শহর ভ্রমণ'],
             hourlyRateBdt: Number(hourlyRateBdt),
             sessionRateBdt: Number(sessionRateBdt),
             availabilityDays: companionProfile?.availabilityDays || ['Fri', 'Sat', 'Sun'],
@@ -206,10 +214,10 @@ export function BecomeCompanionPage() {
           }),
         });
         await refreshSession();
-        setSuccess('Your companion profile, picture & Instagram/WhatsApp/Email channels have been saved!');
+        setSuccess('আপনার সঙ্গী প্রোফাইল, ছবি ও Instagram/WhatsApp/Email তথ্য সংরক্ষিত হয়েছে!');
       }
     } catch (err: any) {
-      setError(err.message || 'Unable to save companion details.');
+      setError(err.message || 'সঙ্গী তথ্য সংরক্ষণ করা যায়নি।');
     } finally {
       setBusy(false);
     }
@@ -219,13 +227,13 @@ export function BecomeCompanionPage() {
     <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <div className="bg-slate-950 text-white rounded-2xl p-8 sm:p-12 hero-architectural-grid border border-slate-800 space-y-5">
         <p className="text-xs font-mono uppercase tracking-widest text-blue-400">
-          COMPANION PARTNER STUDIO · ALL 8 BANGLADESH DIVISIONS
+          সঙ্গী পার্টনার স্টুডিও · বাংলাদেশের ৮টি বিভাগ
         </p>
         <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-balance max-w-3xl">
-          Offer Verified Social Companionship on Your Schedule
+          আপনার নিজের সময়সূচি অনুযায়ী নিরাপদ সামাজিক সঙ্গী সেবা দিন
         </h1>
         <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
-          Set your own BDT hourly and session rates, attach your Instagram, WhatsApp, and public contact email, and manage bookings directly from your dashboard.
+          নিজের BDT (৳) ঘণ্টা ও সেশন রেট নির্ধারণ করুন, প্রোফাইলে Instagram, WhatsApp ও ইমেইল যুক্ত করুন এবং সরাসরি ড্যাশবোর্ড থেকে বুকিং পরিচালনা করুন।
         </p>
       </div>
 
@@ -237,10 +245,10 @@ export function BecomeCompanionPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
             <div>
               <h2 className="font-display text-xl font-bold text-slate-950">
-                {user ? 'Activate / Update Your Companion Profile' : 'Become a Companion (Direct Application)'}
+                {user ? 'আপনার সঙ্গী প্রোফাইল সক্রিয় / আপডেট করুন' : 'সঙ্গী হিসেবে যোগ দিন (সরাসরি আবেদন)'}
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Includes Instagram, WhatsApp, Contact Email & Custom BDT Rate controls
+                Instagram, WhatsApp, যোগাযোগের ইমেইল ও কাস্টম BDT রেট নির্ধারণ সুবিধা
               </p>
             </div>
             {user && (
@@ -249,7 +257,7 @@ export function BecomeCompanionPage() {
                 onClick={() => navigate('/dashboard/companion')}
                 className="px-3.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
               >
-                Open Full Dashboard
+                ড্যাশবোর্ডে যান
               </button>
             )}
           </div>
@@ -266,26 +274,26 @@ export function BecomeCompanionPage() {
           )}
 
           <DevicePhotoPicker
-            label="Profile Picture (Select Directly from Device)"
-            helperText="Pick a photo from your phone or computer — no URL needed."
+            label="প্রোফাইল ছবি (সরাসরি ডিভাইস থেকে দিন)"
+            helperText="ফোন গ্যালারি বা কম্পিউটার থেকে সরাসরি ছবি বাছাই করুন — কোনো URL লাগবে না।"
             value={photoUrl}
             onChange={setPhotoUrl}
           />
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">Display / Legal Name</label>
+              <label className="text-xs font-semibold text-slate-700">প্রদর্শিত / পূর্ণ নাম</label>
               <input
                 required
                 type="text"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="e.g. Tariq Mahmud (Bhai)"
+                placeholder="যেমন: তারেক মাহমুদ (ভাই)"
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">Bangladesh Division</label>
+              <label className="text-xs font-semibold text-slate-700">বাংলাদেশের বিভাগ</label>
               <select
                 value={division}
                 onChange={(e) => {
@@ -303,9 +311,39 @@ export function BecomeCompanionPage() {
             </div>
           </div>
 
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">
+              লিঙ্গ নির্বাচন করুন (ছেলে নাকি মেয়ে)
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setGender('male')}
+                className={`py-2 px-3 rounded-lg border text-xs font-semibold cursor-pointer ${
+                  gender === 'male'
+                    ? 'bg-slate-950 text-white border-slate-950'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                ছেলে / পুরুষ
+              </button>
+              <button
+                type="button"
+                onClick={() => setGender('female')}
+                className={`py-2 px-3 rounded-lg border text-xs font-semibold cursor-pointer ${
+                  gender === 'female'
+                    ? 'bg-blue-700 text-white border-blue-700'
+                    : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                }`}
+              >
+                মেয়ে / নারী
+              </button>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">District / Area</label>
+              <label className="text-xs font-semibold text-slate-700">জেলা / এলাকা</label>
               <select
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
@@ -317,7 +355,7 @@ export function BecomeCompanionPage() {
               </select>
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">Hourly Rate (৳ BDT)</label>
+              <label className="text-xs font-semibold text-slate-700">ঘণ্টাপ্রতি রেট (৳ BDT)</label>
               <input
                 required
                 type="number"
@@ -328,7 +366,7 @@ export function BecomeCompanionPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">4-Hour Session (৳ BDT)</label>
+              <label className="text-xs font-semibold text-slate-700">৪-ঘণ্টা সেশন (৳ BDT)</label>
               <input
                 required
                 type="number"
@@ -343,12 +381,12 @@ export function BecomeCompanionPage() {
           {/* Instagram, WhatsApp & Public Contact Email */}
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
             <p className="text-xs font-bold text-slate-900">
-              Companion Social & Direct Contact Options
+              সঙ্গীর সরাসরি যোগাযোগ ও সোশ্যাল মাধ্যম
             </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                  <Instagram className="w-3.5 h-3.5 text-blue-700" /> Instagram
+                  <Instagram className="w-3.5 h-3.5 text-blue-700" /> ইনস্টাগ্রাম
                 </label>
                 <input
                   type="text"
@@ -360,7 +398,7 @@ export function BecomeCompanionPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" /> WhatsApp Number
+                  <MessageCircle className="w-3.5 h-3.5 text-emerald-600" /> হোয়াটসঅ্যাপ নম্বর
                 </label>
                 <input
                   type="tel"
@@ -372,7 +410,7 @@ export function BecomeCompanionPage() {
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-blue-700" /> Contact Email
+                  <Mail className="w-3.5 h-3.5 text-blue-700" /> যোগাযোগের ইমেইল
                 </label>
                 <input
                   type="email"
@@ -386,24 +424,24 @@ export function BecomeCompanionPage() {
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Profile Headline</label>
+            <label className="text-xs font-semibold text-slate-700">প্রোফাইল শিরোনাম</label>
             <input
               required
               type="text"
               value={headline}
               onChange={(e) => setHeadline(e.target.value)}
-              placeholder="e.g. Corporate Event, Travel & Public Dining Companion"
+              placeholder="যেমন: আড্ডা, শহর ভ্রমণ, কফি ও পাবলিক ইভেন্ট সঙ্গী"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Short Biography</label>
+            <label className="text-xs font-semibold text-slate-700">সংক্ষিপ্ত পরিচিতি</label>
             <textarea
               rows={3}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="Describe your languages, background, and public venues you cover..."
+              placeholder="আপনার ভাষা, অভিজ্ঞতা এবং কোন কোন এলাকায় সময় দিতে পারবেন তা লিখুন..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
@@ -411,7 +449,7 @@ export function BecomeCompanionPage() {
           {!user && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Login Email</label>
+                <label className="text-xs font-semibold text-slate-700">লগইন ইমেইল</label>
                 <input
                   required
                   type="email"
@@ -422,19 +460,19 @@ export function BecomeCompanionPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Password (8+ chars)</label>
+                <label className="text-xs font-semibold text-slate-700">পাসওয়ার্ড (৬+ অক্ষর)</label>
                 <input
                   required
-                  minLength={8}
+                  minLength={6}
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Create password"
+                  placeholder="পাসওয়ার্ড দিন"
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">Date of Birth (18+)</label>
+                <label className="text-xs font-semibold text-slate-700">জন্ম তারিখ (১৮+)</label>
                 <input
                   required
                   type="date"
@@ -454,7 +492,7 @@ export function BecomeCompanionPage() {
               className="mt-0.5"
             />
             <span>
-              I confirm I am aged 18+ and will offer strictly respectful, non-sexual public social companionship or permitted assistance.
+              আমি নিশ্চিত করছি যে আমার বয়স ১৮+ এবং আমি শুধুমাত্র মার্জিত, আইনসম্মত পাবলিক সামাজিক সঙ্গী ও সহায়তা সেবা প্রদান করব।
             </span>
           </label>
 
@@ -464,35 +502,36 @@ export function BecomeCompanionPage() {
             className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
             {busy
-              ? 'Saving Companion Profile...'
+              ? 'প্রোফাইল সংরক্ষণ হচ্ছে...'
               : user
-                ? 'Save & Activate Companion Profile'
-                : 'Create Companion Account & Publish Profile'}
+                ? 'সঙ্গী প্রোফাইল সংরক্ষণ ও সক্রিয় করুন'
+                : 'সঙ্গী অ্যাকাউন্ট তৈরি ও প্রকাশ করুন'}
           </button>
         </form>
 
         <div className="lg:col-span-5 space-y-5">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <CheckCircle2 className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">Full Rate & Schedule Autonomy</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">সম্পূর্ণ রেট ও সময়সূচি স্বাধীনতা</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              Configure custom BDT hourly and 4-hour session rates, and counter-propose pricing before accepting any booking.
+              নিজের BDT (৳) ঘণ্টাপ্রতি ও ৪-ঘণ্টার সেশন রেট ঠিক করুন এবং বুকিং গ্রহণের আগে প্রয়োজনে নতুন মূল্য প্রস্তাব করুন।
             </p>
           </div>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <Shield className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">Verified 18+ NID Protection</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">১৮+ NID / স্কুল রোল সুরক্ষা</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              Submit your NID or Passport inside your Companion Dashboard for official Verification Admin approval.
+              ভেরিফিকেশন অ্যাডমিনের অনুমোদনের জন্য সঙ্গী ড্যাশবোর্ড থেকে NID, স্কুল রোল বা পাসপোর্ট জমা দিন।
             </p>
           </div>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <ShieldCheck className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">Fast bKash & Nagad Payouts</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">দ্রুত bKash ও Nagad পেআউট</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              Withdraw completed session earnings directly to bKash, Nagad, Rocket, or local bank EFT after finance review.
+              সেশন সম্পন্ন হলে ফিন্যান্স যাচাইয়ের পর সরাসরি bKash, Nagad, Rocket বা ব্যাংক EFT-তে আয় উত্তোলন করুন।
             </p>
           </div>
+          <DeveloperBanner variant="card" />
         </div>
       </div>
     </main>
@@ -534,10 +573,10 @@ export function HelpCenterPage() {
       setSubject('');
       setDescription('');
       setBookingId('');
-      setNotice('Support ticket created. Our support team will respond shortly.');
+      setNotice('সাপোর্ট টিকিট তৈরি হয়েছে। আমাদের সাপোর্ট টিম দ্রুত উত্তর দেবে।');
       loadTickets();
     } catch (err: any) {
-      setNotice(err.message || 'Unable to submit ticket.');
+      setNotice(err.message || 'টিকিট পাঠানো যায়নি।');
     }
   };
 
@@ -546,10 +585,10 @@ export function HelpCenterPage() {
       <div className="space-y-2">
         <h1 className="font-display text-3xl font-bold text-slate-950 tracking-tight flex items-center gap-2.5">
           <HelpCircle className="w-7 h-7 text-blue-700" />
-          Help Center & Support Tickets
+          সহায়তা কেন্দ্র ও সাপোর্ট টিকিট
         </h1>
         <p className="text-sm text-slate-600">
-          Resolve booking disputes, payment inquiries, refund requests, or safety concerns.
+          বুকিং সংক্রান্ত সমস্যা, পেমেন্ট জিজ্ঞাসা, রিফান্ড অনুরোধ বা নিরাপত্তা অভিযোগ জানান।
         </p>
       </div>
 
@@ -558,54 +597,54 @@ export function HelpCenterPage() {
           onSubmit={handleSubmit}
           className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4"
         >
-          <h2 className="font-display text-lg font-semibold text-slate-950">Submit a Support Ticket</h2>
+          <h2 className="font-display text-lg font-semibold text-slate-950">সাপোর্ট টিকিট পাঠান</h2>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Issue Category</label>
+            <label className="text-xs font-semibold text-slate-700">সমস্যার ধরন</label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
             >
-              <option value="account_help">Account & Verification Help</option>
-              <option value="booking_dispute">Booking Dispute</option>
-              <option value="payment_complaint">Payment / Gateway Complaint</option>
-              <option value="refund_request">Refund Request</option>
-              <option value="safety_report">Safety Report</option>
+              <option value="account_help">অ্যাকাউন্ট ও ভেরিফিকেশন সহায়তা</option>
+              <option value="booking_dispute">বুকিং সংক্রান্ত সমস্যা</option>
+              <option value="payment_complaint">পেমেন্ট / গেটওয়ে অভিযোগ</option>
+              <option value="refund_request">রিফান্ড অনুরোধ</option>
+              <option value="safety_report">নিরাপত্তা রিপোর্ট</option>
             </select>
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Booking ID (Optional)</label>
+            <label className="text-xs font-semibold text-slate-700">বুকিং আইডি (ঐচ্ছিক)</label>
             <input
               type="text"
               value={bookingId}
               onChange={(e) => setBookingId(e.target.value)}
-              placeholder="e.g. BKG_..."
+              placeholder="যেমন: BKG_..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Subject</label>
+            <label className="text-xs font-semibold text-slate-700">বিষয়</label>
             <input
               required
               type="text"
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="Brief summary of your request"
+              placeholder="আপনার অনুরোধের সংক্ষিপ্ত শিরোনাম"
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
 
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Details</label>
+            <label className="text-xs font-semibold text-slate-700">বিস্তারিত বিবরণ</label>
             <textarea
               required
               rows={4}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Provide booking code, transaction ID, or details..."
+              placeholder="বুকিং কোড, TrxID বা বিস্তারিত তথ্য লিখুন..."
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
             />
           </div>
@@ -614,18 +653,18 @@ export function HelpCenterPage() {
             type="submit"
             className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg cursor-pointer"
           >
-            {user ? 'Create Support Ticket' : 'Sign In to Submit Ticket'}
+            {user ? 'সাপোর্ট টিকিট জমা দিন' : 'টিকিট পাঠাতে সাইন ইন করুন'}
           </button>
           {notice && <p className="text-xs text-blue-700 font-medium">{notice}</p>}
         </form>
 
         <div className="lg:col-span-6 space-y-6">
           <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-            <h2 className="font-display text-lg font-semibold text-slate-950">Your Support Tickets</h2>
+            <h2 className="font-display text-lg font-semibold text-slate-950">আপনার সাপোর্ট টিকিটসমূহ</h2>
             {!user ? (
-              <p className="text-sm text-slate-500">Sign in to view your support history and admin replies.</p>
+              <p className="text-sm text-slate-500">সাপোর্ট ইতিহাস ও অ্যাডমিনের উত্তর দেখতে সাইন ইন করুন।</p>
             ) : tickets.length === 0 ? (
-              <p className="text-sm text-slate-500">You have no open or past support tickets.</p>
+              <p className="text-sm text-slate-500">আপনার কোনো সাপোর্ট টিকিট নেই।</p>
             ) : (
               <div className="divide-y divide-slate-100">
                 {tickets.map((t) => (
@@ -638,7 +677,7 @@ export function HelpCenterPage() {
                     <p className="text-xs text-slate-600">{t.description}</p>
                     {t.adminReply && (
                       <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-800">
-                        <span className="font-semibold">Support Response:</span> {t.adminReply}
+                        <span className="font-semibold">সাপোর্ট উত্তর:</span> {t.adminReply}
                       </div>
                     )}
                   </div>
@@ -646,6 +685,7 @@ export function HelpCenterPage() {
               </div>
             )}
           </div>
+          <DeveloperBanner variant="card" />
         </div>
       </div>
     </main>
@@ -658,21 +698,21 @@ export function SafetyCenterPage() {
     <main className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
       <div className="space-y-2">
         <h1 className="font-display text-3xl font-bold text-slate-950 tracking-tight">
-          Safety Center & Community Standards
+          নিরাপত্তা কেন্দ্র ও কমিউনিটি নীতিমালা
         </h1>
         <p className="text-sm text-slate-600">
-          LOGEASI.COM enforces strict non-sexual, adult-only (18+) public social companionship standards across Bangladesh.
+          LOGEASI.COM বাংলাদেশে শুধুমাত্র ১৮+ প্রাপ্তবয়স্কদের জন্য মার্জিত, অহিংস ও আইনসম্মত পাবলিক সামাজিক সঙ্গী সেবা নিশ্চিত করে।
         </p>
       </div>
 
       <div className="bg-red-50 border border-red-200 rounded-xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="space-y-1">
           <p className="text-sm font-bold text-red-900 flex items-center gap-2">
-            <PhoneCall className="w-4 h-4" /> Immediate Emergency Helplines (Bangladesh)
+            <PhoneCall className="w-4 h-4" /> জরুরি হেল্পলাইন (বাংলাদেশ)
           </p>
           <p className="text-xs text-red-800">
             {platformPublic.safetyNotice ||
-              'Dial 999 for National Emergency Police/Ambulance · Dial 109 for National Helpline for Women & Children.'}
+              'জাতীয় জরুরি সেবা ৯৯৯ (পুলিশ/অ্যাম্বুলেন্স) · নারী ও শিশু নির্যাতন প্রতিরোধ হেল্পলাইন ১০৯।'}
           </p>
         </div>
         <button
@@ -680,36 +720,38 @@ export function SafetyCenterPage() {
           onClick={() => navigate('/help')}
           className="px-4 py-2 bg-red-700 hover:bg-red-800 text-white text-xs font-semibold rounded-lg whitespace-nowrap cursor-pointer"
         >
-          File Safety Report
+          নিরাপত্তা রিপোর্ট করুন
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-2">
-          <h2 className="font-display text-base font-semibold text-slate-950">01. Public Venues Only</h2>
+          <h2 className="font-display text-base font-semibold text-slate-950">০১. শুধুমাত্র পাবলিক স্থান</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            All bookings must occur in reputable public locations (hotels, coffee shops, event halls, hospitals, shopping centers). Private residential meetups are prohibited.
+            সব বুকিং অবশ্যই পাবলিক স্থানে (ক্যাফে, টং চা স্টল, হোটেল, ইভেন্ট হল, হাসপাতাল, শপিং মল) হতে হবে। ব্যক্তিগত বাসাবাড়িতে সাক্ষাৎ সম্পূর্ণ নিষিদ্ধ।
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-2">
-          <h2 className="font-display text-base font-semibold text-slate-950">02. Zero-Tolerance Non-Sexual Policy</h2>
+          <h2 className="font-display text-base font-semibold text-slate-950">০২. সহিংসতা ও অনৈতিক কাজে জিরো-টলারেন্স</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Any solicitation, harassment, or request for sexual services triggers immediate account suspension and permanent reporting to Trust & Safety.
+            মারামারি, হুমকি, মাদক, অশ্লীল প্রস্তাব বা বেআইনি কাজের যেকোনো অনুরোধ করলে তাৎক্ষণিক অ্যাকাউন্ট স্থগিত ও স্থায়ীভাবে ব্যান করা হয়।
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-2">
-          <h2 className="font-display text-base font-semibold text-slate-950">03. 18+ Identity Verification</h2>
+          <h2 className="font-display text-base font-semibold text-slate-950">০৩. ১৮+ পরিচয় যাচাই</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            Every companion verification submission checks government-issued NID or Passport age (18+) and is manually approved by a Verification Admin.
+            সঙ্গীদের জমা দেওয়া NID, স্কুল রোল বা পাসপোর্ট তথ্য ভেরিফিকেশন অ্যাডমিন দ্বারা ম্যানুয়ালি যাচাই ও অনুমোদন করা হয়।
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-2">
-          <h2 className="font-display text-base font-semibold text-slate-950">04. Instant Report & Block</h2>
+          <h2 className="font-display text-base font-semibold text-slate-950">০৪. তাৎক্ষণিক রিপোর্ট ও ব্লক</h2>
           <p className="text-sm text-slate-600 leading-relaxed">
-            You can report and block any user directly from their profile or booking thread. Blocked profiles are immediately hidden from your directory view.
+            যেকোনো প্রোফাইল বা বুকিং থ্রেড থেকে সরাসরি রিপোর্ট ও ব্লক করতে পারবেন। ব্লক করা প্রোফাইল আপনার তালিকা থেকে সাথে সাথেই সরে যাবে।
           </p>
         </div>
       </div>
+
+      <DeveloperBanner variant="card" />
     </main>
   );
 }
@@ -717,12 +759,12 @@ export function SafetyCenterPage() {
 export function PrivacyPolicyPage() {
   return (
     <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-6">
-      <h1 className="font-display text-3xl font-bold text-slate-950">Privacy Policy</h1>
+      <h1 className="font-display text-3xl font-bold text-slate-950">গোপনীয়তা নীতি (Privacy Policy)</h1>
       <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-4 text-sm text-slate-700 leading-relaxed">
-        <p><strong>1. PII Isolation & Data Protection:</strong> LOGEASI.COM isolates private personal data (date of birth, hashed credentials, encrypted 2FA secrets, masked ID references) inside protected server-only subcollections that are never exposed to public endpoints or unauthorized users.</p>
-        <p><strong>2. Payment Credential Zero-Storage Guarantee:</strong> We never collect, transmit, or store credit/debit card numbers, CVVs, mobile financial service PINs (bKash/Nagad/Rocket), or banking passwords. All digital checkouts route through hosted payment sessions verified via HMAC-SHA256 server webhooks.</p>
-        <p><strong>3. Administrative Access Controls:</strong> Administrators cannot view user passwords, OTPs, or payment credentials. Every sensitive administrative action is logged to an immutable security audit trail.</p>
-        <p><strong>4. Data Retention & Recovery:</strong> Users may manage their profiles, blocklist, and emergency contacts at any time from their personal dashboard.</p>
+        <p><strong>১. ব্যক্তিগত তথ্যের সুরক্ষা:</strong> LOGEASI.COM আপনার জন্ম তারিখ, হ্যাশকৃত পাসওয়ার্ড, 2FA সিক্রেট ও পরিচয়পত্রের তথ্য নিরাপদ সার্ভার সাবকালেকশনে সংরক্ষণ করে, যা কখনোই পাবলিক এন্ডপয়েন্টে উন্মুক্ত করা হয় না।</p>
+        <p><strong>২. পেমেন্ট তথ্যের শূন্য-সংরক্ষণ নীতি:</strong> আমরা কখনোই কার্ড নম্বর, CVV বা বিকাশ/নগদ/রকেট PIN সংগ্রহ বা সংরক্ষণ করি না। ডিজিটাল পেমেন্ট HMAC-SHA256 স্বাক্ষরিত ওয়েবহুক বা TrxID যাচাইয়ের মাধ্যমে সম্পন্ন হয়।</p>
+        <p><strong>৩. প্রশাসনিক নিয়ন্ত্রণ ও অডিট:</strong> কোনো অ্যাডমিন ব্যবহারকারীর পাসওয়ার্ড, OTP বা পেমেন্ট পিন দেখতে পারেন না। প্রতিটি গুরুত্বপূর্ণ প্রশাসনিক কাজ অডিট লগে সংরক্ষিত থাকে।</p>
+        <p><strong>৪. তথ্য নিয়ন্ত্রণ:</strong> ব্যবহারকারীরা যেকোনো সময় ড্যাশবোর্ড থেকে তাদের প্রোফাইল, ব্লকলিস্ট ও জরুরি যোগাযোগের তথ্য পরিবর্তন করতে পারবেন।</p>
       </div>
     </main>
   );
@@ -731,12 +773,12 @@ export function PrivacyPolicyPage() {
 export function TermsPage() {
   return (
     <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-6">
-      <h1 className="font-display text-3xl font-bold text-slate-950">Terms & Conditions</h1>
+      <h1 className="font-display text-3xl font-bold text-slate-950">শর্তাবলী (Terms & Conditions)</h1>
       <div className="bg-white border border-slate-200 rounded-xl p-6 sm:p-8 space-y-4 text-sm text-slate-700 leading-relaxed">
-        <p><strong>1. Adult Eligibility (18+):</strong> By creating an account or booking on LOGEASI.COM, you certify that you are at least 18 years of age.</p>
-        <p><strong>2. Permitted Services Only:</strong> LOGEASI.COM is strictly a social companionship, public event accompaniment, cultural outing, and everyday assistance marketplace. Sexual, romantic escorting, or unlawful services are strictly prohibited.</p>
-        <p><strong>3. Pricing, Fees & Escrow:</strong> All listed prices are in Bangladeshi Taka (BDT ৳). Both customer and companion must agree on the final booking price prior to checkout. A transparent platform service fee is deducted upon settlement.</p>
-        <p><strong>4. Cancellations & Refunds:</strong> Paid bookings cancelled prior to meetup completion automatically generate a refund review record handled by Finance/Support Administrators.</p>
+        <p><strong>১. প্রাপ্তবয়স্ক যোগ্যতা (১৮+):</strong> LOGEASI.COM-এ অ্যাকাউন্ট তৈরি বা বুকিং করার মাধ্যমে আপনি নিশ্চিত করছেন যে আপনার বয়স কমপক্ষে ১৮ বছর।</p>
+        <p><strong>২. শুধুমাত্র আইনসম্মত ও অহিংস সেবা:</strong> LOGEASI.COM শুধুমাত্র সামাজিক আড্ডা, ঘোরাফেরা, পাবলিক ইভেন্ট ও দৈনন্দিন সহায়তার প্ল্যাটফর্ম। মারামারি, মাদক, হুমকি বা অনৈতিক কোনো কাজ সম্পূর্ণ নিষিদ্ধ।</p>
+        <p><strong>৩. মূল্য, ফি ও এস্ক্রো:</strong> সকল মূল্য বাংলাদেশি টাকায় (BDT ৳) নির্ধারিত। পেমেন্টের আগে কাস্টমার ও সঙ্গী উভয়ের চূড়ান্ত মূল্যে সম্মতি প্রয়োজন।</p>
+        <p><strong>৪. বাতিল ও রিফান্ড:</strong> সেশন সম্পন্ন হওয়ার আগে পরিশোধিত বুকিং বাতিল হলে ফিন্যান্স ও সাপোর্ট অ্যাডমিনের রিভিউয়ের জন্য স্বয়ংক্রিয়ভাবে রিফান্ড অনুরোধ তৈরি হয়।</p>
       </div>
     </main>
   );

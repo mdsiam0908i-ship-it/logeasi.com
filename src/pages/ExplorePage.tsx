@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Filter, MapPin, Search, ShieldCheck, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { CompanionCard } from '../components/CompanionCard.tsx';
+import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
 import { useAuth } from '../context/AuthContext.tsx';
 import {
   BANGLADESH_DIVISIONS,
@@ -14,6 +15,17 @@ import {
 } from '../data/bookingCategories.ts';
 import { apiRequest, formatBdt } from '../lib/api.ts';
 import type { CompanionProfile } from '../types/logeasi.ts';
+
+const QUICK_KEYWORD_PRESETS = [
+  'Corporate',
+  'Dining & Coffee',
+  'Tea',
+  'Cultural',
+  'Book Fair',
+  'Airport',
+  'Senior Support',
+  'Dhanmondi',
+];
 
 export function ExplorePage() {
   const { platformPublic, navigate } = useAuth();
@@ -49,16 +61,7 @@ export function ExplorePage() {
       platformPublic.bookingCategories && platformPublic.bookingCategories.length > 0
         ? platformPublic.bookingCategories
         : DEFAULT_BENGALI_BOOKING_CATEGORIES;
-    const standardCats = [
-      'Bhai / Brother Companion',
-      'Corporate Events',
-      'Public Events',
-      'Dining & Coffee',
-      'Cultural & Galleries',
-      'Everyday Assistance',
-      'City Guide & Errands',
-    ];
-    return Array.from(new Set([...dynamicCats, ...standardCats]));
+    return Array.from(new Set(dynamicCats));
   }, [platformPublic.bookingCategories]);
 
   const scopedLocations = useMemo(() => getLocationsForDivision(division), [division]);
@@ -80,44 +83,69 @@ export function ExplorePage() {
     }
   };
 
-  const fetchCompanions = async (overridePref?: string) => {
-    setLoading(true);
-    setError('');
-    setSafetyNotice('');
-    try {
-      const activePref = overridePref !== undefined ? overridePref : preference;
-      const params = new URLSearchParams();
-      params.set('top100', 'true');
-      params.set('sort', sort);
-      if (q) params.set('q', q);
-      if (activePref.trim()) params.set('preference', activePref.trim());
-      if (division !== 'all') params.set('division', division);
-      if (city !== 'all') params.set('city', city);
-      if (category !== 'all') params.set('category', category);
-      if (language !== 'all') params.set('language', language);
-      if (Number(minRating) > 0) params.set('minRating', minRating);
-      if (Number(maxPrice) > 0 && Number(maxPrice) < 10000) params.set('maxPrice', maxPrice);
-      if (availableOnly) params.set('availableOnly', 'true');
-      if (verifiedOnly) params.set('verifiedOnly', 'true');
+  const requestSeqRef = useRef(0);
+  const firstRenderRef = useRef(true);
 
-      const res = await apiRequest<{
-        companions: CompanionProfile[];
-        safetyNotice?: string;
-        matchMeta?: ParsedPreferenceQuery;
-      }>(`/api/companions?${params.toString()}`);
-      setCompanions(res.companions || []);
-      setSafetyNotice(res.safetyNotice || '');
-      setMatchMeta(res.matchMeta || null);
-    } catch (err: any) {
-      setError(err.message || 'Unable to load companions.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const fetchCompanions = useCallback(
+    async (opts?: { overridePref?: string; overrideQ?: string }) => {
+      const reqId = ++requestSeqRef.current;
+      setLoading(true);
+      setError('');
+      setSafetyNotice('');
+      try {
+        const activePref = opts?.overridePref !== undefined ? opts.overridePref : preference;
+        const activeQ = opts?.overrideQ !== undefined ? opts.overrideQ : q;
+        const params = new URLSearchParams();
+        params.set('top100', 'true');
+        params.set('sort', sort);
+        if (activeQ.trim()) params.set('q', activeQ.trim());
+        if (activePref.trim()) params.set('preference', activePref.trim());
+        if (division !== 'all') params.set('division', division);
+        if (city !== 'all') params.set('city', city);
+        if (category !== 'all') params.set('category', category);
+        if (language !== 'all') params.set('language', language);
+        if (Number(minRating) > 0) params.set('minRating', minRating);
+        if (Number(maxPrice) > 0 && Number(maxPrice) < 10000) params.set('maxPrice', maxPrice);
+        if (availableOnly) params.set('availableOnly', 'true');
+        if (verifiedOnly) params.set('verifiedOnly', 'true');
+
+        const res = await apiRequest<{
+          companions: CompanionProfile[];
+          safetyNotice?: string;
+          matchMeta?: ParsedPreferenceQuery;
+        }>(`/api/companions?${params.toString()}`);
+
+        if (reqId !== requestSeqRef.current) return;
+        setCompanions(res.companions || []);
+        setSafetyNotice(res.safetyNotice || '');
+        setMatchMeta(res.matchMeta || null);
+      } catch (err: any) {
+        if (reqId !== requestSeqRef.current) return;
+        setError(err.message || 'Unable to load companions.');
+      } finally {
+        if (reqId === requestSeqRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [q, preference, division, city, category, language, sort, minRating, maxPrice, availableOnly, verifiedOnly]
+  );
 
   useEffect(() => {
     fetchCompanions();
   }, [division, city, category, language, sort, minRating, maxPrice, availableOnly, verifiedOnly]);
+
+  // Live debounced keyword search when user types in the search bar
+  useEffect(() => {
+    if (firstRenderRef.current) {
+      firstRenderRef.current = false;
+      return;
+    }
+    const timer = setTimeout(() => {
+      fetchCompanions({ overrideQ: q });
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [q]);
 
   const toggleCompare = (uid: string) => {
     setCompareIds((prev) =>
@@ -133,25 +161,126 @@ export function ExplorePage() {
         <div>
           <h1 className="font-display text-3xl font-bold text-slate-950 tracking-tight">
             {activeDivisionMeta
-              ? `Explore ${activeDivisionMeta.label} Companions`
-              : 'Explore Top 100 Companions Across Bangladesh'}
+              ? `${activeDivisionMeta.label}-এর সঙ্গী খুঁজুন`
+              : 'সারা বাংলাদেশের টপ ১০০ সঙ্গী খুঁজুন'}
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Filter verified 18+ Bhai/Brother & social companions by administrative division (Dhaka, Chittagong, Sylhet, Rajshahi, Khulna, Barishal, Rangpur, Mymensingh) and local area.
+            বাংলাদেশের সকল ৮টি বিভাগ (ঢাকা, চট্টগ্রাম, সিলেট, রাজশাহী, খুলনা, বরিশাল, রংপুর, ময়মনসিংহ) ও স্থানীয় এলাকা অনুযায়ী ১৮+ যাচাইকৃত সঙ্গী ফিল্টার করুন।
           </p>
         </div>
         <p className="text-xs font-mono text-slate-500 tabular-nums whitespace-nowrap shrink-0">
-          {companions.length} companions · {activeDivisionMeta ? activeDivisionMeta.label : 'All 8 Divisions'}
+          {companions.length} জন সঙ্গী · {activeDivisionMeta ? activeDivisionMeta.label : 'সকল ৮ বিভাগ'}
         </p>
       </div>
 
+      {/* Keyword-Based Search Bar (Names, Interests, Skills) */}
+      <section
+        aria-label="কীওয়ার্ড ভিত্তিক সঙ্গী অনুসন্ধান"
+        className="mt-6 bg-white border border-slate-200 rounded-2xl p-4 sm:p-5 space-y-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label htmlFor="explore-keyword-search" className="font-display text-sm sm:text-base font-bold text-slate-950">
+            নাম, আগ্রহ বা দক্ষতা দিয়ে সঙ্গী খুঁজুন
+          </label>
+          <span className="text-xs text-slate-500">
+            সঙ্গীর নাম · দক্ষতা · আগ্রহ · ক্যাটাগরি · ভাষা · এলাকা
+          </span>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            fetchCompanions({ overrideQ: q });
+          }}
+          className="flex flex-col sm:flex-row gap-2.5"
+        >
+          <div className="flex-1 flex items-center gap-2.5 border border-slate-300 focus-within:border-blue-700 focus-within:ring-2 focus-within:ring-blue-100 rounded-xl px-3.5 py-2.5 bg-slate-50/60 transition-colors">
+            <Search className="w-4 h-4 text-slate-500 shrink-0" />
+            <input
+              id="explore-keyword-search"
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="নাম, আগ্রহ বা দক্ষতা লিখুন (যেমন: Rafiq, Corporate, Tea Garden, Book Fair, Airport, Senior Support)..."
+              className="w-full text-sm text-slate-950 placeholder:text-slate-400 bg-transparent focus:outline-none"
+            />
+            {q.trim() && (
+              <button
+                type="button"
+                onClick={() => {
+                  setQ('');
+                  fetchCompanions({ overrideQ: '' });
+                }}
+                aria-label="সার্চ কীওয়ার্ড মুছুন"
+                className="p-1 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/70 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button
+            type="submit"
+            className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-xl inline-flex items-center justify-center gap-2 whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+          >
+            <Search className="w-4 h-4" />
+            কীওয়ার্ড খুঁজুন
+          </button>
+        </form>
+
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+          <span className="text-slate-500 font-medium pr-1">জনপ্রিয় কীওয়ার্ড:</span>
+          {QUICK_KEYWORD_PRESETS.map((kw) => {
+            const isActive = q.trim().toLowerCase() === kw.toLowerCase();
+            return (
+              <button
+                key={kw}
+                type="button"
+                onClick={() => {
+                  const nextQ = isActive ? '' : kw;
+                  setQ(nextQ);
+                  fetchCompanions({ overrideQ: nextQ });
+                }}
+                className={`px-2.5 py-1 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  isActive
+                    ? 'bg-blue-700 text-white border-blue-700'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                {kw}
+              </button>
+            );
+          })}
+        </div>
+
+        {q.trim() && (
+          <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+            <span>
+              <strong className="text-slate-950 font-semibold">“{q.trim()}”</strong> কীওয়ার্ড অনুযায়ী{' '}
+              <span className="font-mono font-bold text-blue-700 tabular-nums">{companions.length}</span> জন সঙ্গী প্রদর্শিত হচ্ছে
+              <span aria-hidden="true"> · </span>
+              নাম, দক্ষতা, আগ্রহ ও পরিচিতি থেকে ম্যাচ করা হয়েছে
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setQ('');
+                fetchCompanions({ overrideQ: '' });
+              }}
+              className="text-blue-700 hover:underline font-semibold whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              সার্চ মুছুন
+            </button>
+          </div>
+        )}
+      </section>
+
       {/* Smart Bangla Preference & Rate Matcher */}
-      <div className="mt-6 bg-slate-950 text-white rounded-2xl p-5 border border-slate-800 space-y-3 shadow-sm">
+      <div className="mt-4 bg-slate-950 text-white rounded-2xl p-5 border border-slate-800 space-y-3 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-blue-400" />
             <h2 className="font-display text-sm sm:text-base font-bold">
-              যেমন সঙ্গী ও রেট চাই বিস্তারিত লিখুন (Smart Bangla Matcher)
+              যেমন সঙ্গী ও রেট চাই বিস্তারিত লিখুন (স্মার্ট বাংলা ম্যাচার)
             </h2>
           </div>
           <span className="text-[11px] text-slate-400">
@@ -165,7 +294,7 @@ export function ExplorePage() {
             value={preference}
             onChange={(e) => setPreference(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && fetchCompanions()}
-            placeholder="যেমন: ঢাকায় চা ও স্মোক ব্রেক আড্ডার জন্য ১৫০০ টাকার মধ্যে বন্ধু চাই বা কফি আউটিংয়ের জন্য ২০০০ টাকায়..."
+            placeholder="যেমন: ঢাকায় চা ও সিগারেট ব্রেক আড্ডার জন্য ১৫০০ টাকার মধ্যে বন্ধু চাই বা টং আড্ডার সঙ্গী..."
             className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-slate-400 focus:outline-none focus:border-blue-500"
           />
           <button
@@ -180,17 +309,18 @@ export function ExplorePage() {
         <div className="flex flex-wrap items-center gap-2 text-[11px]">
           <span className="text-slate-400">দ্রুত পছন্দ:</span>
           {[
-            'চা ও স্মোক ব্রেক আড্ডার জন্য ১৫০০ টাকার মধ্যে বন্ধু চাই',
+            'চা ও সিগারেট ব্রেক আড্ডার জন্য ১৫০০ টাকার মধ্যে বন্ধু চাই',
+            'টং এর আড্ডার রাজা ও গল্পের জন্য বন্ধু চাই',
             'ঢাকায় মেয়ে বন্ধু / কফি আউটিং ২০০০ টাকার মধ্যে',
-            'শান্তিপূর্ণ গ্যাঞ্জাম ও বন্ধু আড্ডা ১৫০০ টাকায়',
-            'সিলেটে ঘোরাঘুরির জন্য ভাই সঙ্গী চাই',
+            'শান্তিপূর্ণ গ্যাঞ্জাম সমাধান ও মিটমাটের জন্য বিশ্বস্ত ভাই চাই',
+            'সিলেটে ঘোরা ফেরা ও শহর ভ্রমণের জন্য ভাই সঙ্গী চাই',
           ].map((preset) => (
             <button
               key={preset}
               type="button"
               onClick={() => {
                 setPreference(preset);
-                fetchCompanions(preset);
+                fetchCompanions({ overridePref: preset });
               }}
               className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-lg text-slate-200 cursor-pointer"
             >
@@ -229,7 +359,7 @@ export function ExplorePage() {
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 whitespace-nowrap shrink-0 pr-1">
             <MapPin className="w-3.5 h-3.5 text-blue-700" />
-            Division:
+            বিভাগ:
           </span>
           <button
             type="button"
@@ -240,7 +370,7 @@ export function ExplorePage() {
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
             }`}
           >
-            All Bangladesh
+            সারা বাংলাদেশ
           </button>
           {BANGLADESH_DIVISIONS.map((div) => (
             <button
@@ -258,26 +388,14 @@ export function ExplorePage() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-          <div className="lg:col-span-2 flex items-center gap-2 border border-slate-200 rounded-lg px-3 py-2">
-            <Search className="w-4 h-4 text-slate-400 shrink-0" />
-            <input
-              type="text"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && fetchCompanions()}
-              placeholder="Search Bhai, name, city or area..."
-              className="w-full text-sm focus:outline-none"
-            />
-          </div>
-
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <select
             value={division}
             onChange={(e) => handleDivisionChange(e.target.value)}
-            aria-label="Filter by Bangladesh administrative division"
+            aria-label="বাংলাদেশের বিভাগ অনুযায়ী ফিল্টার"
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
           >
-            <option value="all">All 8 Divisions (Bangladesh)</option>
+            <option value="all">সকল ৮ বিভাগ (বাংলাদেশ)</option>
             {BANGLADESH_DIVISIONS.map((div) => (
               <option key={div.id} value={div.id}>
                 {div.label}
@@ -288,11 +406,11 @@ export function ExplorePage() {
           <select
             value={city}
             onChange={(e) => setCity(e.target.value)}
-            aria-label="Filter by district or local area"
+            aria-label="জেলা বা এলাকা অনুযায়ী ফিল্টার"
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
           >
             <option value="all">
-              {activeDivisionMeta ? `All Areas in ${activeDivisionMeta.shortLabel}` : 'All Districts & Areas'}
+              {activeDivisionMeta ? `${activeDivisionMeta.shortLabel}-এর সকল এলাকা` : 'সকল জেলা ও এলাকা'}
             </option>
             {scopedLocations.map((loc) => (
               <option key={loc} value={loc}>
@@ -304,10 +422,10 @@ export function ExplorePage() {
           <select
             value={category}
             onChange={(e) => setCategory(e.target.value)}
-            aria-label="Filter by category"
+            aria-label="ক্যাটাগরি অনুযায়ী ফিল্টার"
             className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
           >
-            <option value="all">সকল ক্যাটাগরি (All Categories)</option>
+            <option value="all">সকল ক্যাটাগরি</option>
             {categoryChoices.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -321,7 +439,7 @@ export function ExplorePage() {
             className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-lg transition-colors flex items-center justify-center gap-2 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Filter className="w-4 h-4" />
-            Apply Search
+            ফিল্টার খুঁজুন
           </button>
         </div>
 
@@ -334,7 +452,7 @@ export function ExplorePage() {
                 onChange={(e) => setVerifiedOnly(e.target.checked)}
                 className="rounded border-slate-300 text-blue-700"
               />
-              <span className="font-medium">ID Verified Only</span>
+              <span className="font-medium">শুধু ভেরিফায়েড আইডি</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer whitespace-nowrap shrink-0">
               <input
@@ -343,49 +461,49 @@ export function ExplorePage() {
                 onChange={(e) => setAvailableOnly(e.target.checked)}
                 className="rounded border-slate-300 text-blue-700"
               />
-              <span className="font-medium">Available Now</span>
+              <span className="font-medium">এখনই অ্যাভেইলেবল</span>
             </label>
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
-              <span>Max Hourly:</span>
+              <span>সর্বোচ্চ ঘণ্টা রেট:</span>
               <select
                 value={maxPrice}
                 onChange={(e) => setMaxPrice(e.target.value)}
                 className="border border-slate-200 rounded px-2 py-1 text-xs bg-white font-mono"
               >
-                <option value="10000">Any BDT</option>
-                <option value="1500">Up to ৳1,500/hr</option>
-                <option value="2000">Up to ৳2,000/hr</option>
-                <option value="2500">Up to ৳2,500/hr</option>
-                <option value="4000">Up to ৳4,000/hr</option>
+                <option value="10000">যেকোনো BDT</option>
+                <option value="1500">৳১,৫০০/ঘণ্টা পর্যন্ত</option>
+                <option value="2000">৳২,০০০/ঘণ্টা পর্যন্ত</option>
+                <option value="2500">৳২,৫০০/ঘণ্টা পর্যন্ত</option>
+                <option value="4000">৳৪,০০০/ঘণ্টা পর্যন্ত</option>
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span>Language:</span>
+              <span>ভাষা:</span>
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
                 className="border border-slate-200 rounded px-2 py-1 text-xs bg-white"
               >
-                <option value="all">Any</option>
-                <option value="Bengali">Bengali</option>
-                <option value="English">English</option>
-                <option value="Hindi">Hindi</option>
+                <option value="all">যেকোনো ভাষা</option>
+                <option value="Bengali">বাংলা</option>
+                <option value="English">ইংরেজি</option>
+                <option value="Hindi">হিন্দি</option>
               </select>
             </div>
             <div className="flex items-center gap-2">
-              <span>Sort:</span>
+              <span>সাজান:</span>
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                aria-label="Sort companions"
+                aria-label="সঙ্গী সাজান"
                 className="border border-slate-200 rounded px-2 py-1 text-xs bg-white"
               >
-                <option value="top">Top 100 Ranked</option>
-                <option value="rating">Highest Rated</option>
-                <option value="completed">Most Completed</option>
-                <option value="price_asc">Lowest Hourly BDT</option>
-                <option value="price_desc">Highest Hourly BDT</option>
+                <option value="top">টপ ১০০ র‍্যাঙ্ক</option>
+                <option value="rating">সর্বোচ্চ রেটিং</option>
+                <option value="completed">সবচেয়ে বেশি সেশন</option>
+                <option value="price_asc">সবচেয়ে কম রেট (BDT)</option>
+                <option value="price_desc">সর্বোচ্চ রেট (BDT)</option>
               </select>
             </div>
           </div>
@@ -406,11 +524,11 @@ export function ExplorePage() {
               setMaxPrice('10000');
               setAvailableOnly(false);
               setVerifiedOnly(false);
-              fetchCompanions('');
+              fetchCompanions({ overridePref: '', overrideQ: '' });
             }}
             className="text-blue-700 hover:underline font-medium whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Reset Filters
+            ফিল্টার রিসেট করুন
           </button>
         </div>
       </div>
@@ -420,27 +538,27 @@ export function ExplorePage() {
         <section className="mt-6 bg-slate-950 text-white rounded-xl p-5 border border-slate-800">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-display text-base font-semibold">
-              Side-by-Side Comparison ({comparedProfiles.length}/3)
+              পাশাপাশি তুলনা ({comparedProfiles.length}/৩)
             </h2>
             <button
               type="button"
               onClick={() => setCompareIds([])}
               className="text-xs text-slate-300 hover:text-white flex items-center gap-1 cursor-pointer"
             >
-              <X className="w-3.5 h-3.5" /> Clear Comparison
+              <X className="w-3.5 h-3.5" /> তুলনা মুছুন
             </button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-slate-800 text-slate-400">
-                  <th className="py-2 pr-4">Companion</th>
-                  <th className="py-2 px-4">Division & Location</th>
-                  <th className="py-2 px-4">Hourly Rate</th>
-                  <th className="py-2 px-4">Session Rate</th>
-                  <th className="py-2 px-4">Rating</th>
-                  <th className="py-2 px-4">Verification</th>
-                  <th className="py-2 pl-4 text-right">Action</th>
+                  <th className="py-2 pr-4">সঙ্গী</th>
+                  <th className="py-2 px-4">বিভাগ ও এলাকা</th>
+                  <th className="py-2 px-4">ঘণ্টা প্রতি রেট</th>
+                  <th className="py-2 px-4">সেশন রেট</th>
+                  <th className="py-2 px-4">রেটিং</th>
+                  <th className="py-2 px-4">ভেরিফিকেশন</th>
+                  <th className="py-2 pl-4 text-right">পদক্ষেপ</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
@@ -453,11 +571,11 @@ export function ExplorePage() {
                     </td>
                     <td className="py-2.5 px-4 font-mono tabular-nums">{formatBdt(c.hourlyRateBdt)}</td>
                     <td className="py-2.5 px-4 font-mono tabular-nums">{formatBdt(c.sessionRateBdt)}</td>
-                    <td className="py-2.5 px-4 font-mono tabular-nums">{c.ratingAvg > 0 ? `${c.ratingAvg} (${c.reviewCount})` : 'New'}</td>
+                    <td className="py-2.5 px-4 font-mono tabular-nums">{c.ratingAvg > 0 ? `${c.ratingAvg} (${c.reviewCount})` : 'নতুন'}</td>
                     <td className="py-2.5 px-4">
                       {c.verificationStatus === 'approved' ? (
                         <span className="inline-flex items-center gap-1 text-blue-300">
-                          <ShieldCheck className="w-3.5 h-3.5" /> Verified
+                          <ShieldCheck className="w-3.5 h-3.5" /> ভেরিফায়েড
                         </span>
                       ) : (
                         <span className="text-slate-400 capitalize">{c.verificationStatus}</span>
@@ -469,7 +587,7 @@ export function ExplorePage() {
                         onClick={() => navigate(`/booking/checkout/${c.uid}`)}
                         className="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded font-semibold whitespace-nowrap cursor-pointer"
                       >
-                        Select & Book
+                        সিলেক্ট ও বুক করুন
                       </button>
                     </td>
                   </tr>
@@ -494,9 +612,9 @@ export function ExplorePage() {
         </div>
       ) : companions.length === 0 ? (
         <div className="mt-8 bg-white border border-slate-200 rounded-xl p-12 text-center space-y-3">
-          <p className="font-display text-lg font-semibold text-slate-900">No companions matched your filters</p>
+          <p className="font-display text-lg font-semibold text-slate-900">আপনার ফিল্টারের সাথে কোনো সঙ্গী মেলেনি</p>
           <p className="text-sm text-slate-600">
-            Try selecting All Bangladesh divisions, clearing the area filter, or widening your maximum BDT price.
+            দয়া করে "সারা বাংলাদেশ" নির্বাচন করুন, এলাকা ফিল্টার রিসেট করুন অথবা সর্বোচ্চ রেট বাড়িয়ে দেখুন।
           </p>
         </div>
       ) : (
@@ -513,6 +631,10 @@ export function ExplorePage() {
           ))}
         </div>
       )}
+
+      <div className="mt-10">
+        <DeveloperBanner variant="card" />
+      </div>
     </main>
   );
 }

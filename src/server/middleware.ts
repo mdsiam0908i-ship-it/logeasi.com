@@ -146,3 +146,33 @@ export function requireRootOwner(req: AuthenticatedRequest, res: Response, next:
   }
   next();
 }
+
+export const PROFILE_UPDATE_GRACE_MS = 3 * 24 * 60 * 60 * 1000;
+
+export function getProfileDeadlineMs(user: UserAccount): number {
+  if (user.profileDeadlineAt) {
+    const parsed = new Date(user.profileDeadlineAt).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const createdMs = new Date(user.createdAt || Date.now()).getTime();
+  return (Number.isNaN(createdMs) ? Date.now() : createdMs) + PROFILE_UPDATE_GRACE_MS;
+}
+
+export function isProfileLockExpired(user?: UserAccount | null): boolean {
+  if (!user) return false;
+  if (isAdminRole(user.role)) return false;
+  if (user.uid.startsWith('cmp_') || user.uid.startsWith('root_')) return false;
+  if (user.profileCompleted === true) return false;
+  return Date.now() > getProfileDeadlineMs(user);
+}
+
+export function requireProfileUnlocked(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+  if (isProfileLockExpired(req.authUser)) {
+    return res.status(403).json({
+      error:
+        '৩ দিনের মধ্যে প্রোফাইল আপডেট না করায় আপনার অ্যাকাউন্টের সকল কার্যক্রম সাময়িকভাবে লক করা হয়েছে। অনুগ্রহ করে প্রথমে আপনার প্রোফাইল আপডেট করুন।',
+      profileLockExpired: true,
+    });
+  }
+  next();
+}

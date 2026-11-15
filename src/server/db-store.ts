@@ -1,7 +1,27 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
-const DATA_DIR = path.resolve(process.cwd(), '.data');
+function resolveWritableDataDir(): string {
+  const candidates = [
+    path.resolve(process.cwd(), '.data'),
+    path.join(os.tmpdir(), 'logeasi-data'),
+  ];
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.accessSync(dir, fs.constants.W_OK);
+      return dir;
+    } catch {
+      // Try next candidate
+    }
+  }
+  return candidates[1];
+}
+
+const DATA_DIR = resolveWritableDataDir();
 const DB_FILE = path.join(DATA_DIR, 'logeasi-db.json');
 
 type DocData = Record<string, any>;
@@ -30,9 +50,19 @@ function persistStore() {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    const tmp = `${DB_FILE}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(memoryStore, null, 2), 'utf8');
-    fs.renameSync(tmp, DB_FILE);
+    const payload = JSON.stringify(memoryStore, null, 2);
+    const tmp = `${DB_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, payload, 'utf8');
+    try {
+      fs.renameSync(tmp, DB_FILE);
+    } catch {
+      fs.writeFileSync(DB_FILE, payload, 'utf8');
+      try {
+        fs.unlinkSync(tmp);
+      } catch {
+        // ignore
+      }
+    }
   } catch (err) {
     console.error('Failed to persist store:', err);
   }

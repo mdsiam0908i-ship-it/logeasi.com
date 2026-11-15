@@ -47,7 +47,7 @@ export function CompanionCard({
         )}
         {companion.topRank && companion.topRank <= 100 && (
           <div className="absolute top-3 left-3 bg-slate-950/90 backdrop-blur-sm text-white px-2.5 py-1 rounded-md text-[11px] font-mono font-bold tabular-nums tracking-wide border border-white/10">
-            TOP #{String(companion.topRank).padStart(2, '0')}
+            টপ #{String(companion.topRank).padStart(2, '0')}
           </div>
         )}
         <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-t from-slate-950/90 via-slate-950/45 to-transparent p-4 flex flex-col justify-end">
@@ -55,7 +55,7 @@ export function CompanionCard({
             <h3 className="font-display text-lg font-bold truncate">{companion.displayName}</h3>
             <span className="flex items-center gap-1 text-sm font-mono tabular-nums shrink-0">
               <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-              {companion.ratingAvg > 0 ? companion.ratingAvg.toFixed(1) : 'New'}
+              {companion.ratingAvg > 0 ? companion.ratingAvg.toFixed(1) : 'নতুন'}
             </span>
           </div>
         </div>
@@ -78,7 +78,7 @@ export function CompanionCard({
                 <span aria-hidden="true">·</span>
                 <span className="inline-flex items-center gap-1 text-blue-700 font-semibold">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  Verified
+                  ভেরিফায়েড
                 </span>
               </>
             )}
@@ -101,7 +101,7 @@ export function CompanionCard({
               {companion.whatsappNumber && (
                 <span className="inline-flex items-center gap-1 shrink-0 font-mono">
                   <MessageCircle className="w-3 h-3 text-emerald-600 shrink-0" />
-                  <span>WhatsApp</span>
+                  <span>হোয়াটসঅ্যাপ</span>
                 </span>
               )}
             </div>
@@ -114,10 +114,10 @@ export function CompanionCard({
               <span className="font-mono text-base font-bold text-slate-950 tabular-nums">
                 {formatBdt(companion.hourlyRateBdt)}
               </span>
-              <span className="text-xs text-slate-500"> / hour</span>
+              <span className="text-xs text-slate-500"> / ঘণ্টা</span>
             </div>
             <div className="text-xs text-slate-500 font-mono tabular-nums">
-              Session {formatBdt(companion.sessionRateBdt)}
+              সেশন {formatBdt(companion.sessionRateBdt)}
             </div>
           </div>
 
@@ -127,7 +127,7 @@ export function CompanionCard({
               onClick={() => onBook(companion.uid)}
               className="flex-1 py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg transition-colors whitespace-nowrap cursor-pointer"
             >
-              Book Companion
+              বুক করুন
             </button>
             {onToggleCompare && (
               <button
@@ -139,7 +139,7 @@ export function CompanionCard({
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                 }`}
               >
-                {isCompared ? 'Compared' : 'Compare'}
+                {isCompared ? 'তুলনায় যুক্ত' : 'তুলনা করুন'}
               </button>
             )}
           </div>

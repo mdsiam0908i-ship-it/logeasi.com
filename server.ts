@@ -35,9 +35,13 @@ async function startServer() {
   app.use('/api', authRouter);
   app.use('/api', marketplaceRouter);
   app.use('/api', paymentsAdminRouter);
+  app.use('/api', (_req, res) => {
+    res.status(404).json({ error: 'API endpoint not found.' });
+  });
 
   if (process.env.NODE_ENV === 'production') {
     const distDir = path.resolve(__dirname, 'dist');
+    app.use('/src/assets', express.static(path.resolve(__dirname, 'src/assets')));
     app.use(express.static(distDir));
     app.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));

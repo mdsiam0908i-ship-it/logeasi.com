@@ -6,6 +6,7 @@ import {
   requireAdmin,
   requireAuth,
   requirePermission,
+  requireProfileUnlocked,
   requireRootOwner,
   type AuthenticatedRequest,
 } from './middleware.ts';
@@ -126,95 +127,140 @@ async function processVerifiedPaymentWebhook(payload: {
   return { alreadyProcessed: false, payment: { ...payment, status: 'verified_paid', webhookVerified: true } };
 }
 
-paymentsAdminRouter.post('/payments/initiate', requireAuth, async (req: AuthenticatedRequest, res) => {
-  try {
-    const bookingId = sanitizeId(req.body?.bookingId);
-    const gateway = req.body?.gateway as PaymentGateway;
-    if (!['bkash', 'nagad', 'rocket', 'sslcommerz', 'cash'].includes(gateway)) {
-      return res.status(400).json({ error: 'Unsupported payment gateway.' });
-    }
-
-    const [bSnap, settingsSnap] = await Promise.all([
-      adminDb.collection('bookings').doc(bookingId).get(),
-      adminDb.collection('platform_settings').doc('main').get(),
-    ]);
-
-    if (!bSnap.exists) return res.status(404).json({ error: 'Booking not found.' });
-    const booking = bSnap.data() as BookingRecord;
-
-    if (booking.customerUid !== req.authUser!.uid) {
-      return res.status(403).json({ error: 'Only the booking customer can initiate payment.' });
-    }
-    if (!['price_agreed_awaiting_payment', 'payment_pending'].includes(booking.status)) {
-      return res.status(400).json({
-        error: 'Both parties must agree on the final price before payment initiation.',
-      });
-    }
-
-    const settings = settingsSnap.data() || {};
-    const mode = settings.paymentMode === 'live' && settings.merchantApproved ? 'live' : 'sandbox';
-
-    if (gateway === 'cash') {
-      if (!settings.cashPaymentEnabled) {
-        return res.status(403).json({ error: 'Cash payment is currently disabled by platform policy.' });
+paymentsAdminRouter.post(
+  '/payments/initiate',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const bookingId = sanitizeId(req.body?.bookingId);
+      const gateway = req.body?.gateway as PaymentGateway;
+      if (!['bkash', 'nagad', 'custom', 'benson', 'rocket', 'sslcommerz', 'cash'].includes(gateway)) {
+        return res.status(400).json({ error: 'অসমর্থিত পেমেন্ট মাধ্যম।' });
       }
-      const maxCash = Number(settings.maxCashBookingBdt || 3000);
-      if (booking.agreedPriceBdt > maxCash) {
+
+      const [bSnap, settingsSnap] = await Promise.all([
+        adminDb.collection('bookings').doc(bookingId).get(),
+        adminDb.collection('platform_settings').doc('main').get(),
+      ]);
+
+      if (!bSnap.exists) return res.status(404).json({ error: 'বুকিং পাওয়া যায়নি।' });
+      const booking = bSnap.data() as BookingRecord;
+
+      if (booking.customerUid !== req.authUser!.uid) {
+        return res.status(403).json({ error: 'শুধুমাত্র বুকিং কাস্টমার পেমেন্ট করতে পারবেন।' });
+      }
+      if (['declined', 'cancelled', 'completed'].includes(booking.status)) {
+        return res.status(400).json({ error: 'এই বুকিংয়ের জন্য আর পেমেন্ট করা সম্ভব নয়।' });
+      }
+
+      const advanceDone = booking.advanceStatus === 'paid' || booking.paymentStatus === 'paid';
+      const paymentStage: 'advance_50' | 'remaining_50' = advanceDone ? 'remaining_50' : 'advance_50';
+
+      // Mandatory 50% Advance MUST use Admin Personal/Custom/Benson Options
+      if (paymentStage === 'advance_50' && !['bkash', 'nagad', 'custom', 'benson'].includes(gateway)) {
         return res.status(400).json({
-          error: `Cash payment is permitted only for bookings up to BDT ৳${maxCash.toLocaleString()}.`,
+          error:
+            'প্রথমে ৫০% অ্যাডভান্স পেমেন্ট বাধ্যতামূলকভাবে অ্যাডমিনের পার্সোনাল বিকাশ, পার্সোনাল নগদ, কাস্টম পার্সোনাল অথবা বেনসন সিগারেট অপশনের মাধ্যমেই করতে হবে।',
         });
       }
-    }
 
-    const paymentId = `PAY_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
-    const transactionId = `LGS-${gateway.toUpperCase().slice(0, 3)}-${crypto.randomInt(1000000, 9999999)}`;
-    const gatewaySessionId = `SBX_${crypto.randomBytes(8).toString('hex')}`;
-    const now = new Date().toISOString();
+      const settings = settingsSnap.data() || {};
+      const mode = settings.paymentMode === 'live' && settings.merchantApproved ? 'live' : 'sandbox';
 
-    const record: PaymentRecord = {
-      id: paymentId,
-      transactionId,
-      bookingId: booking.id,
-      bookingCode: booking.bookingCode,
-      customerUid: booking.customerUid,
-      companionUid: booking.companionUid,
-      gateway,
-      mode,
-      amountBdt: booking.agreedPriceBdt,
-      platformFeeBdt: booking.platformFeeBdt,
-      companionNetBdt: booking.companionNetBdt,
-      status: gateway === 'cash' ? 'cash_pending' : 'initiated',
-      webhookVerified: false,
-      gatewaySessionId,
-      createdAt: now,
-    };
+      const advanceAmount = booking.advanceRequiredBdt || Math.round(booking.agreedPriceBdt / 2);
+      const remainingAmount =
+        booking.remainingDueBdt !== undefined
+          ? Number(booking.remainingDueBdt)
+          : Math.max(0, booking.agreedPriceBdt - Number(booking.advancePaidBdt || 0));
 
-    await adminDb.collection('payments').doc(paymentId).set(record);
-    await adminDb.collection('bookings').doc(booking.id).update({
-      status: gateway === 'cash' ? 'confirmed_paid' : 'payment_pending',
-      paymentStatus: gateway === 'cash' ? 'cash_pending' : 'pending',
-      updatedAt: now,
-    });
+      const chargeAmountBdt = paymentStage === 'advance_50' ? advanceAmount : remainingAmount;
+      if (chargeAmountBdt <= 0) {
+        return res.status(400).json({ error: 'এই বুকিংয়ের কোনো বকেয়া টাকা অবশিষ্ট নেই।' });
+      }
 
-    if (gateway === 'cash') {
-      await createNotification({
-        userUid: booking.companionUid,
-        type: 'cash_booking_confirmed',
-        title: `Cash-on-Meetup Booking Confirmed (${booking.bookingCode})`,
-        message: `Customer selected permitted cash payment (BDT ৳${booking.agreedPriceBdt.toLocaleString()}).`,
-        link: '/dashboard/companion',
+      if (gateway === 'cash') {
+        if (!settings.cashPaymentEnabled) {
+          return res.status(403).json({ error: 'Cash payment is currently disabled by platform policy.' });
+        }
+        const maxCash = Number(settings.maxCashBookingBdt || 3000);
+        if (chargeAmountBdt > maxCash) {
+          return res.status(400).json({
+            error: `Cash payment is permitted only for amounts up to BDT ৳${maxCash.toLocaleString()}.`,
+          });
+        }
+      }
+
+      const feePercent = Number(settings.serviceFeePercent ?? 12);
+      const chargeFeeBdt = Math.round((chargeAmountBdt * feePercent) / 100);
+      const chargeNetBdt = chargeAmountBdt - chargeFeeBdt;
+
+      const paymentId = `PAY_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const transactionId = `LGS-${gateway.toUpperCase().slice(0, 3)}-${crypto.randomInt(1000000, 9999999)}`;
+      const gatewaySessionId = `SBX_${crypto.randomBytes(8).toString('hex')}`;
+      const now = new Date().toISOString();
+
+      const baseBdt = Math.max(100, Number(settings.bensonBaseBdt || 1000));
+      const packetsPerBase = Math.max(1, Number(settings.bensonPacketsPerBase || 3));
+      const equivalentPackets =
+        gateway === 'benson' ? Number(((chargeAmountBdt / baseBdt) * packetsPerBase).toFixed(1)) : undefined;
+      const equivalentLabel =
+        gateway === 'benson'
+          ? `${equivalentPackets} ${sanitizeString(settings.bensonItemName || 'প্যাকেট বেনসন সিগারেট', 80)}`
+          : undefined;
+
+      const record: PaymentRecord = {
+        id: paymentId,
+        transactionId,
+        bookingId: booking.id,
+        bookingCode: booking.bookingCode,
+        customerUid: booking.customerUid,
+        companionUid: booking.companionUid,
+        gateway,
+        mode,
+        paymentStage,
+        amountBdt: chargeAmountBdt,
+        platformFeeBdt: chargeFeeBdt,
+        companionNetBdt: chargeNetBdt,
+        status: gateway === 'cash' ? 'cash_pending' : 'initiated',
+        webhookVerified: false,
+        gatewaySessionId,
+        ...(equivalentLabel ? { equivalentItemLabel: equivalentLabel, equivalentItemPackets: equivalentPackets } : {}),
+        createdAt: now,
+      };
+
+      await adminDb.collection('payments').doc(paymentId).set(record);
+      await adminDb.collection('bookings').doc(booking.id).update({
+        status:
+          gateway === 'cash'
+            ? 'confirmed_paid'
+            : booking.status === 'requested' || booking.status === 'accepted_awaiting_agreement'
+              ? booking.status
+              : 'payment_pending',
+        paymentStatus: gateway === 'cash' ? 'cash_pending' : booking.paymentStatus === 'advance_paid' ? 'advance_paid' : 'pending',
+        updatedAt: now,
       });
-    }
 
-    res.status(201).json({
-      payment: record,
-      sandboxCheckoutReady: gateway !== 'cash',
-    });
-  } catch (err) {
-    console.error('Initiate payment error:', err);
-    res.status(500).json({ error: 'Unable to initiate payment checkout.' });
+      if (gateway === 'cash') {
+        await createNotification({
+          userUid: booking.companionUid,
+          type: 'cash_booking_confirmed',
+          title: `Cash-on-Meetup Balance Confirmed (${booking.bookingCode})`,
+          message: `Customer selected permitted cash settlement for remaining BDT ৳${chargeAmountBdt.toLocaleString()}.`,
+          link: '/dashboard/companion',
+        });
+      }
+
+      res.status(201).json({
+        payment: record,
+        sandboxCheckoutReady: paymentStage !== 'advance_50' && gateway !== 'cash',
+      });
+    } catch (err) {
+      console.error('Initiate payment error:', err);
+      res.status(500).json({ error: 'Unable to initiate payment checkout.' });
+    }
   }
-});
+);
 
 // Hosted Sandbox Payment Gateway Authorization -> generates signed server-to-server webhook
 paymentsAdminRouter.post(
@@ -230,6 +276,12 @@ paymentsAdminRouter.post(
 
       if (payment.customerUid !== req.authUser!.uid) {
         return res.status(403).json({ error: 'Unauthorized checkout session.' });
+      }
+      if (payment.paymentStage === 'advance_50') {
+        return res.status(400).json({
+          error:
+            '৫০% অ্যাডভান্স পেমেন্ট অবশ্যই অ্যাডমিনের পার্সোনাল বা কাস্টম সেন্ড মানি নম্বরে টাকা পাঠিয়ে TrxID জমা দিতে হবে।',
+        });
       }
       if (payment.mode !== 'sandbox') {
         return res.status(400).json({ error: 'Sandbox gateway simulator is unavailable in live mode.' });
@@ -279,17 +331,18 @@ paymentsAdminRouter.post('/payments/webhook', async (req, res) => {
   }
 });
 
-// Customer submits Personal bKash (1) or Personal Nagad (2: 01877pokpok) Transaction Reference ID (NO PIN/OTP ever stored)
+// Customer submits Personal bKash, Personal Nagad, Admin Custom Personal TrxID, or Benson Cigarette Photo Proof (NO PIN/OTP ever stored)
 paymentsAdminRouter.post(
   '/payments/:id/submit-personal-trx',
   requireAuth,
+  requireProfileUnlocked,
   async (req: AuthenticatedRequest, res) => {
     try {
       const paymentId = sanitizeId(req.params.id);
-      const trxId = sanitizeString(req.body?.senderReferenceTrxId || '', 60).toUpperCase();
-      if (!trxId || trxId.length < 5) {
+      const trxId = sanitizeString(req.body?.senderReferenceTrxId || '', 80).toUpperCase();
+      if (!trxId || trxId.length < 4) {
         return res.status(400).json({
-          error: 'Enter a valid bKash/Nagad Transaction ID (minimum 5 characters). Never enter your PIN.',
+          error: 'সঠিক TrxID বা হস্তান্তর রেফারেন্স/ফোন নম্বর লিখুন (কমপক্ষে ৪ অক্ষর)। কখনোই আপনার PIN দেবেন না।',
         });
       }
 
@@ -301,41 +354,96 @@ paymentsAdminRouter.post(
       if (payment.customerUid !== req.authUser!.uid) {
         return res.status(403).json({ error: 'Unauthorized payment session.' });
       }
-      if (!['bkash', 'nagad'].includes(payment.gateway)) {
+      if (!['bkash', 'nagad', 'custom', 'benson'].includes(payment.gateway)) {
         return res.status(400).json({
-          error: 'Manual TrxID submission applies only to Personal bKash or Personal Nagad payments.',
+          error: 'ম্যানুয়াল TrxID / রেফারেন্স শুধুমাত্র অ্যাডমিন পার্সোনাল বিকাশ, নগদ, কাস্টম বা বেনসন সিগারেট অপশনের জন্য।',
         });
       }
       if (payment.status === 'verified_paid') {
-        return res.status(400).json({ error: 'This payment is already verified and settled.' });
+        return res.status(400).json({ error: 'এই পেমেন্ট ইতিমধ্যেই যাচাই ও সম্পন্ন হয়েছে।' });
       }
 
-      const now = new Date().toISOString();
-      await payRef.update({
+      let bensonDeliveryMode: 'in_person' | 'send_delivery' | undefined;
+      let sanitizedProofPhoto: string | undefined;
+
+      if (payment.gateway === 'benson') {
+        const rawMode = String(req.body?.bensonDeliveryMode || '').trim();
+        if (rawMode !== 'in_person' && rawMode !== 'send_delivery') {
+          return res.status(400).json({
+            error: 'বেনসন সিগারেট কীভাবে দেবেন তা নির্বাচন করুন (দেখা করে সরাসরি নাকি কুরিয়ার/রাইডারে সেন্ড)।',
+          });
+        }
+        bensonDeliveryMode = rawMode;
+
+        const cleanedPhoto = sanitizePhotoData(req.body?.proofPhotoUrl);
+        if (!cleanedPhoto) {
+          return res.status(400).json({
+            error:
+              'বেনসন সিগারেট কিনে প্যাকেটের স্পষ্ট ছবি (প্রমাণ) তুলে আপলোড করা বাধ্যতামূলক। দেখা করে দিন বা সেন্ড করুন—সিগারেটের ছবি ছাড়া জমা নেওয়া হবে না।',
+          });
+        }
+        sanitizedProofPhoto = cleanedPhoto;
+      } else if (req.body?.proofPhotoUrl) {
+        const optionalPhoto = sanitizePhotoData(req.body?.proofPhotoUrl);
+        if (optionalPhoto) {
+          sanitizedProofPhoto = optionalPhoto;
+        }
+      }
+
+      const bRef = adminDb.collection('bookings').doc(payment.bookingId);
+      const bSnap = await bRef.get();
+      const bData = (bSnap.data() || {}) as BookingRecord;
+
+      const updatePayload: Partial<PaymentRecord> = {
         senderReferenceTrxId: trxId,
         status: 'pending_manual_verification',
-      });
-      await adminDb.collection('bookings').doc(payment.bookingId).update({
-        status: 'payment_pending',
-        paymentStatus: 'pending',
+      };
+      if (bensonDeliveryMode) updatePayload.bensonDeliveryMode = bensonDeliveryMode;
+      if (sanitizedProofPhoto) updatePayload.proofPhotoUrl = sanitizedProofPhoto;
+
+      const now = new Date().toISOString();
+      await payRef.update(updatePayload);
+      await bRef.update({
+        status:
+          bData.status === 'requested' || bData.status === 'accepted_awaiting_agreement'
+            ? bData.status
+            : 'payment_pending',
+        advanceStatus: payment.paymentStage === 'advance_50' ? 'pending_verification' : (bData.advanceStatus || 'unpaid'),
+        paymentStatus: bData.paymentStatus === 'advance_paid' ? 'advance_paid' : 'pending',
         updatedAt: now,
       });
+
+      const modeTextBn =
+        bensonDeliveryMode === 'in_person'
+          ? 'দেখা করে হাতে হাতে'
+          : bensonDeliveryMode === 'send_delivery'
+            ? 'কুরিয়ার/রাইডারে সেন্ড'
+            : '';
 
       await Promise.all([
         createNotification({
           userUid: payment.companionUid,
           type: 'personal_payment_submitted',
-          title: `Personal ${payment.gateway.toUpperCase()} TrxID Submitted (${payment.transactionId})`,
-          message: `Customer submitted TrxID ${trxId} for BDT ৳${payment.amountBdt.toLocaleString()}. Pending Finance Admin verification.`,
+          title:
+            payment.gateway === 'benson'
+              ? `বেনসন সিগারেট প্রমাণ জমা হয়েছে (${payment.transactionId})`
+              : `Personal ${payment.gateway.toUpperCase()} TrxID Submitted (${payment.transactionId})`,
+          message:
+            payment.gateway === 'benson'
+              ? `গ্রাহক ${modeTextBn} পদ্ধতিতে (${payment.equivalentItemLabel || formatBdtFallback(payment.amountBdt)}) বেনসন সিগারেটের ছবিসহ প্রমাণ (${trxId}) জমা দিয়েছেন। অ্যাডমিন যাচাইয়ের অপেক্ষায়।`
+              : `Customer submitted TrxID ${trxId} for BDT ৳${payment.amountBdt.toLocaleString()}. Pending Finance Admin verification.`,
           link: '/dashboard/companion',
         }),
         writeAuditLog({
           actorUid: req.authUser!.uid,
           actorRole: req.authUser!.role,
-          action: 'PERSONAL_MFS_TRX_SUBMITTED',
+          action: payment.gateway === 'benson' ? 'BENSON_PROOF_SUBMITTED' : 'PERSONAL_MFS_TRX_SUBMITTED',
           targetType: 'payment',
           targetId: payment.id,
-          details: `Submitted ${payment.gateway.toUpperCase()} Personal TrxID=${trxId} for booking ${payment.bookingCode || payment.bookingId}.`,
+          details:
+            payment.gateway === 'benson'
+              ? `Submitted BENSON cigarette proof (${bensonDeliveryMode}) Ref=${trxId} for booking ${payment.bookingCode || payment.bookingId}.`
+              : `Submitted ${payment.gateway.toUpperCase()} Personal TrxID=${trxId} for booking ${payment.bookingCode || payment.bookingId}.`,
           severity: 'info',
         }),
       ]);
@@ -343,8 +451,7 @@ paymentsAdminRouter.post(
       res.json({
         payment: {
           ...payment,
-          senderReferenceTrxId: trxId,
-          status: 'pending_manual_verification',
+          ...updatePayload,
         },
       });
     } catch (err) {
@@ -353,6 +460,10 @@ paymentsAdminRouter.post(
     }
   }
 );
+
+function formatBdtFallback(amount: number): string {
+  return `৳${Number(amount || 0).toLocaleString()}`;
+}
 
 // Finance Admin or Root verifies Personal bKash / Personal Nagad TrxID
 paymentsAdminRouter.post(
@@ -372,12 +483,17 @@ paymentsAdminRouter.post(
         return res.status(400).json({ error: 'Payment already verified.' });
       }
 
+      const bRef = adminDb.collection('bookings').doc(payment.bookingId);
+      const bSnap = await bRef.get();
+      const booking = (bSnap.data() || {}) as BookingRecord;
+
       const now = new Date().toISOString();
       if (decision === 'reject') {
         await payRef.update({ status: 'failed', verifiedAt: now });
-        await adminDb.collection('bookings').doc(payment.bookingId).update({
-          status: 'price_agreed_awaiting_payment',
-          paymentStatus: 'unpaid',
+        await bRef.update({
+          status: booking.status === 'payment_pending' ? 'price_agreed_awaiting_payment' : booking.status || 'requested',
+          advanceStatus: payment.paymentStage === 'advance_50' ? 'unpaid' : (booking.advanceStatus || 'unpaid'),
+          paymentStatus: booking.advanceStatus === 'paid' ? 'advance_paid' : 'unpaid',
           updatedAt: now,
         });
         await createNotification({
@@ -404,9 +520,23 @@ paymentsAdminRouter.post(
         webhookVerified: true,
         verifiedAt: now,
       });
-      await adminDb.collection('bookings').doc(payment.bookingId).update({
-        status: 'confirmed_paid',
-        paymentStatus: 'paid',
+
+      const isAdvance = payment.paymentStage === 'advance_50';
+      const totalAgreed = Number(booking.agreedPriceBdt || payment.amountBdt);
+      const nextAdvancePaid = isAdvance
+        ? payment.amountBdt
+        : Number(booking.advancePaidBdt || 0) + payment.amountBdt;
+      const remainingDueBdt = Math.max(0, totalAgreed - nextAdvancePaid);
+
+      await bRef.update({
+        advancePaidBdt: nextAdvancePaid,
+        remainingDueBdt,
+        advanceStatus: 'paid',
+        paymentStatus: remainingDueBdt === 0 ? 'paid' : 'advance_paid',
+        status:
+          remainingDueBdt === 0 || booking.companionAgreed
+            ? 'confirmed_paid'
+            : booking.status || 'requested',
         updatedAt: now,
       });
 
@@ -454,7 +584,7 @@ paymentsAdminRouter.post(
   }
 );
 
-// Update Personal bKash & Personal Nagad receiving numbers (Finance Admin or Root)
+// Update Personal bKash, Personal Nagad & Admin Custom Personal receiving numbers (Finance Admin or Root)
 paymentsAdminRouter.put(
   '/admin/personal-payment-numbers',
   requireAdmin,
@@ -463,6 +593,16 @@ paymentsAdminRouter.put(
     try {
       const bkashPersonalNumber = sanitizeString(req.body?.bkashPersonalNumber || '', 40);
       const nagadPersonalNumber = sanitizeString(req.body?.nagadPersonalNumber || '', 40);
+      const customPaymentLabel = sanitizeString(req.body?.customPaymentLabel || '', 120);
+      const customPaymentNumber = sanitizeString(req.body?.customPaymentNumber || '', 60);
+      const customPaymentInstructions = sanitizeString(req.body?.customPaymentInstructions || '', 300);
+      const bensonPaymentLabel = sanitizeString(req.body?.bensonPaymentLabel || '', 120);
+      const bensonBaseBdt = Math.max(100, Math.min(100000, Number(req.body?.bensonBaseBdt || 1000)));
+      const bensonPacketsPerBase = Math.max(1, Math.min(100, Number(req.body?.bensonPacketsPerBase || 3)));
+      const bensonItemName = sanitizeString(req.body?.bensonItemName || 'প্যাকেট বেনসন সিগারেট', 80);
+      const bensonContactNumber = sanitizeString(req.body?.bensonContactNumber || '', 60);
+      const bensonPaymentInstructions = sanitizeString(req.body?.bensonPaymentInstructions || '', 300);
+
       if (!bkashPersonalNumber || !nagadPersonalNumber) {
         return res.status(400).json({ error: 'Both Personal bKash and Personal Nagad numbers are required.' });
       }
@@ -470,6 +610,15 @@ paymentsAdminRouter.put(
         {
           bkashPersonalNumber,
           nagadPersonalNumber,
+          ...(customPaymentLabel ? { customPaymentLabel } : {}),
+          ...(customPaymentNumber !== undefined ? { customPaymentNumber } : {}),
+          ...(customPaymentInstructions !== undefined ? { customPaymentInstructions } : {}),
+          ...(bensonPaymentLabel ? { bensonPaymentLabel } : {}),
+          bensonBaseBdt,
+          bensonPacketsPerBase,
+          ...(bensonItemName ? { bensonItemName } : {}),
+          ...(bensonContactNumber !== undefined ? { bensonContactNumber } : {}),
+          ...(bensonPaymentInstructions !== undefined ? { bensonPaymentInstructions } : {}),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -480,10 +629,23 @@ paymentsAdminRouter.put(
         action: 'PERSONAL_PAYMENT_NUMBERS_UPDATED',
         targetType: 'platform_settings',
         targetId: 'main',
-        details: `Updated Personal bKash=${bkashPersonalNumber}, Personal Nagad=${nagadPersonalNumber}.`,
+        details: `Updated Personal bKash=${bkashPersonalNumber}, Personal Nagad=${nagadPersonalNumber}, Custom=${customPaymentNumber}, Benson=${bensonBaseBdt}BDT/${bensonPacketsPerBase}pkts.`,
         severity: 'warning',
       });
-      res.json({ updated: true, bkashPersonalNumber, nagadPersonalNumber });
+      res.json({
+        updated: true,
+        bkashPersonalNumber,
+        nagadPersonalNumber,
+        customPaymentLabel,
+        customPaymentNumber,
+        customPaymentInstructions,
+        bensonPaymentLabel,
+        bensonBaseBdt,
+        bensonPacketsPerBase,
+        bensonItemName,
+        bensonContactNumber,
+        bensonPaymentInstructions,
+      });
     } catch (err) {
       res.status(500).json({ error: 'Failed to update personal payment numbers.' });
     }
@@ -513,7 +675,11 @@ paymentsAdminRouter.get('/payments/mine', requireAuth, async (req: Authenticated
 });
 
 // Companion Payout Requests
-paymentsAdminRouter.post('/payouts/request', requireAuth, async (req: AuthenticatedRequest, res) => {
+paymentsAdminRouter.post(
+  '/payouts/request',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.authUser!.uid;
     const amountBdt = Math.round(Number(req.body?.amountBdt || 0));
@@ -633,8 +799,8 @@ paymentsAdminRouter.get(
       const totalVolumeBdt = paidTxns.reduce((s, p) => s + Number(p.amountBdt || 0), 0);
       const platformRevenueBdt = paidTxns.reduce((s, p) => s + Number(p.platformFeeBdt || 0), 0);
 
-      // Build 7-bucket chart series
-      const gatewayBreakdown = ['bkash', 'nagad', 'rocket', 'sslcommerz', 'cash'].map((gw) => ({
+      // Build gateway breakdown chart series
+      const gatewayBreakdown = ['bkash', 'nagad', 'custom', 'benson', 'rocket', 'sslcommerz', 'cash'].map((gw) => ({
         gateway: gw.toUpperCase(),
         volumeBdt: paidTxns
           .filter((p) => p.gateway === gw)
@@ -1022,7 +1188,7 @@ paymentsAdminRouter.post(
   }
 );
 
-// Content Management
+// Content Management + Admin Notice Board
 paymentsAdminRouter.put(
   '/admin/content',
   requireAdmin,
@@ -1032,12 +1198,22 @@ paymentsAdminRouter.put(
       const announcementBanner = sanitizeString(req.body?.announcementBanner, 300);
       const safetyNotice = sanitizeString(req.body?.safetyNotice, 300);
       const featuredHeadline = sanitizeString(req.body?.featuredHeadline, 300);
+      const noticeBoardTitle = sanitizeString(req.body?.noticeBoardTitle || '', 160);
+      const noticeBoardMessage = sanitizeString(req.body?.noticeBoardMessage || '', 600);
+      const adminContactUsername = sanitizeString(req.body?.adminContactUsername || '', 80);
+      const adminContactEmail = sanitizeString(req.body?.adminContactEmail || '', 160).toLowerCase();
+      const adminContactInstagram = sanitizeString(req.body?.adminContactInstagram || '', 120);
 
       await adminDb.collection('platform_settings').doc('main').set(
         {
           announcementBanner,
           safetyNotice,
           featuredHeadline,
+          ...(noticeBoardTitle ? { noticeBoardTitle } : {}),
+          ...(noticeBoardMessage ? { noticeBoardMessage } : {}),
+          ...(adminContactUsername ? { adminContactUsername } : {}),
+          ...(adminContactEmail ? { adminContactEmail } : {}),
+          ...(adminContactInstagram ? { adminContactInstagram } : {}),
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -1049,7 +1225,7 @@ paymentsAdminRouter.put(
         action: 'CONTENT_UPDATED',
         targetType: 'platform_settings',
         targetId: 'main',
-        details: 'Updated announcement banner, safety notice, and hero headline.',
+        details: 'Updated announcement banner, safety notice, hero headline, and Notice Board admin contacts.',
         severity: 'info',
       });
 

@@ -1,11 +1,14 @@
 export const DEFAULT_BENGALI_BOOKING_CATEGORIES: string[] = [
-  'চা ও স্মোক ব্রেক আড্ডা (Tea & Smoke Break Hangout)',
-  'শান্তিপূর্ণ গ্যাঞ্জাম ও বন্ধু আড্ডা (Casual Group Hangout)',
-  'মেয়ে বন্ধু / কফি ও পাবলিক আউটিং (Public Coffee & Outing)',
-  'ভাই / বন্ধু সঙ্গী (Bhai / Brother Companion)',
-  'ইভেন্ট, পার্টি ও দাওয়াত সঙ্গী (Events & Gatherings)',
-  'শপিং ও শহর ঘোরাঘুরি (Shopping & City Guide)',
-  'কর্পোরেট ও অফিসিয়াল সহায়তা (Corporate & Official Assistance)',
+  'চা ও সিগারেট ব্রেক আড্ডা',
+  'ঘোরা ফেরা ও শহর ভ্রমণ',
+  'টং এর আড্ডার রাজা (টং চা ও গল্প)',
+  'শান্তিপূর্ণ গ্যাঞ্জাম সমাধান ও বন্ধু আড্ডা',
+  'মেয়ে নিয়ে কট খাওয়া — শান্তিপূর্ণ কথায় মিটমাট',
+  'একা আছি — বিশ্বস্ত ভাই/বন্ধু সাপোর্ট',
+  'মেয়ে বন্ধু / কফি ও পাবলিক আউটিং',
+  'ইভেন্ট, বিয়ে ও দাওয়াত সঙ্গী',
+  'শপিং, বাজার ও হাসপাতাল সহায়তা',
+  'কর্পোরেট ও অফিসিয়াল কাজ সহায়তা',
 ];
 
 const BANGLA_DIGIT_MAP: Record<string, string> = {
@@ -30,9 +33,16 @@ const VIOLENCE_BN_TERMS = [
   'মারবো',
   'মারব',
   'মারা হবে',
+  'মারতে যাব',
+  'মারতে যাবো',
+  'মারতে যাওয়া',
   'স্যারকে মারা',
   'স্যারকে মার',
+  'স্যার কে মার',
   'স্যাররে মার',
+  'বড় ভাইকে মার',
+  'বড় ভাই কে মার',
+  'বড় ভাই কে মার',
   'পিটানো',
   'পিটামু',
   'পিটাবো',
@@ -44,23 +54,41 @@ const VIOLENCE_BN_TERMS = [
   'গুলি',
   'রক্তপাত',
   'অস্ত্র',
+  'গ্যাংস্টার',
+  'সন্ত্রাস',
+  'সন্ত্রাসী',
+  'চাঁদাবাজি',
+  'ডিলার',
+  'মাল খাইতে',
+  'মাল খাওয়া',
+  'গাজা',
+  'গাঁজা',
+  'ইয়াবা',
+  'ইয়াবা',
+  'ফেনসিডিল',
+  'হিরোইন',
+  'মদ খাইতে',
 ];
 
 const VIOLENCE_EN_REGEXES: RegExp[] = [
   /\bmarmu\b/i,
   /\bmarbo\b/i,
+  /\bmarte\s*jab\w*\b/i,
   /\bmaramari\b/i,
   /\bpitamu\b/i,
   /\bpitabo\b/i,
   /\bhamla\b/i,
   /\bbeat\s*(up|him|her|sir|someone|teacher)\b/i,
-  /\bsir\s*re\s*mar\w*\b/i,
+  /\bsir\s*(ke|re)\s*mar\w*\b/i,
+  /\bbhai\s*(ke|re)\s*mar\w*\b/i,
   /\bteacher\b.*\b(beat|hit|attack)\b/i,
   /\b(assault|murder|homicide|weapon|knife|pistol|gun|riot|brawl|revenge\s*attack)\b/i,
+  /\b(gangster|gang\s*fight|extortion|terrorist|mafia)\b/i,
+  /\b(drug\s*dealer|dealer|yaba|ganja|weed|cocaine|heroin|phensidyl|narcotic)\b/i,
 ];
 
 export const VIOLENCE_SAFETY_MESSAGE_BN =
-  'নিরাপত্তা নীতিমালা: কাউকে মারা, স্যার বা কারো ওপর হামলা, মারামারি বা যেকোনো সহিংস কাজের জন্য ক্যাটাগরি বা বুকিং গ্রহণ করা হয় না। LOGEASI.COM শুধুমাত্র ১৮+ শান্তিপূর্ণ সামাজিক আড্ডা, চা/কফি ও বৈধ সহায়তার জন্য।';
+  'নিরাপত্তা নীতিমালা: কাউকে মারা, স্যার বা বড় ভাইয়ের ওপর হামলা, গ্যাংস্টার কার্যক্রম, মাদক/ডিলার বা যেকোনো বেআইনি ও সহিংস কাজের জন্য ক্যাটাগরি বা বুকিং গ্রহণ করা হয় না। LOGEASI.COM শুধুমাত্র ১৮+ শান্তিপূর্ণ সামাজিক আড্ডা, কথায় মিটমাট, ঘোরাফেরা, চা/কফি ও বৈধ সহায়তার জন্য।';
 
 export function containsUnsafeViolenceTerm(text: string): boolean {
   const raw = String(text || '').trim();
@@ -149,32 +177,32 @@ const DIVISION_KEYWORD_MAP: Array<{ division: string; terms: string[] }> = [
 
 const BILINGUAL_CONCEPT_MAP: Array<{ triggers: string[]; expansions: string[] }> = [
   {
-    triggers: ['চা', 'tea', 'cha', 'টং', 'tong', 'কফি', 'coffee', 'cafe', 'লাঞ্চ', 'ডিনার', 'dining'],
-    expansions: ['tea', 'coffee', 'dining', 'চা', 'কফি', 'স্মোক', 'আউটিং'],
+    triggers: ['চা', 'tea', 'cha', 'টং', 'tong', 'রাজা', 'কফি', 'coffee', 'cafe', 'লাঞ্চ', 'ডিনার', 'dining'],
+    expansions: ['tea', 'coffee', 'dining', 'চা', 'কফি', 'টং', 'আড্ডা', 'আউটিং'],
   },
   {
     triggers: ['স্মোক', 'smoke', 'সিগারেট', 'cigarette', 'sigret', 'সিগ্রেট', 'চায়ের'],
-    expansions: ['tea', 'smoke', 'hangout', 'স্মোক', 'চা', 'আড্ডা', 'গ্যাঞ্জাম'],
+    expansions: ['tea', 'smoke', 'hangout', 'স্মোক', 'সিগারেট', 'চা', 'আড্ডা', 'গ্যাঞ্জাম'],
   },
   {
-    triggers: ['আড্ডা', 'গ্যাঞ্জাম', 'genjam', 'adda', 'hangout', 'বন্ধু', 'bandhu', 'chill', 'কথা', 'গল্প'],
-    expansions: ['hangout', 'social', 'outings', 'bhai', 'আড্ডা', 'গ্যাঞ্জাম', 'বন্ধু'],
+    triggers: ['আড্ডা', 'গ্যাঞ্জাম', 'genjam', 'adda', 'hangout', 'বন্ধু', 'bandhu', 'chill', 'কথা', 'গল্প', 'মিটমাট', 'কট', 'সমাধান'],
+    expansions: ['hangout', 'social', 'outings', 'bhai', 'আড্ডা', 'গ্যাঞ্জাম', 'মিটমাট', 'বন্ধু'],
+  },
+  {
+    triggers: ['একা', 'একলা', 'সাপোর্ট', 'কেউ নাই', 'কেও নাই', 'alone', 'support', 'ভাই', 'ছেলে', 'bhai', 'brother', 'bro', 'chele', 'boy', 'male'],
+    expansions: ['bhai', 'brother', 'male', 'ভাই', 'সাপোর্ট', 'একা'],
   },
   {
     triggers: ['মেয়ে', 'মেয়ে', 'maya', 'meye', 'female', 'girl', 'woman', 'lady', 'বান্ধবী', 'আন্টি', 'আপু', 'apu'],
     expansions: ['female', 'women', 'girl', 'coffee', 'outing', 'dining', 'cultural', 'মেয়ে', 'কফি', 'আউটিং'],
   },
   {
-    triggers: ['ভাই', 'ছেলে', 'bhai', 'brother', 'bro', 'chele', 'boy', 'male'],
-    expansions: ['bhai', 'brother', 'male', 'ভাই'],
-  },
-  {
     triggers: ['ইভেন্ট', 'পার্টি', 'দাওয়াত', 'বিয়ে', 'event', 'party', 'wedding', 'gathering', 'concert'],
-    expansions: ['event', 'public', 'corporate', 'gathering', 'ইভেন্ট', 'পার্টি', 'দাওয়াত'],
+    expansions: ['event', 'public', 'corporate', 'gathering', 'ইভেন্ট', 'পার্টি', 'দাওয়াত', 'বিয়ে'],
   },
   {
-    triggers: ['শপিং', 'মার্কেট', 'ঘোরা', 'ঘোরাঘুরি', 'ট্যুর', 'shopping', 'guide', 'errand', 'tour', 'city'],
-    expansions: ['shopping', 'guide', 'errands', 'city', 'শপিং', 'ঘোরাঘুরি'],
+    triggers: ['শপিং', 'মার্কেট', 'বাজার', 'হাসপাতাল', 'ঘোরা', 'ঘোরা ফেরা', 'ঘোরাঘুরি', 'ভ্রমণ', 'ট্যুর', 'shopping', 'guide', 'errand', 'tour', 'city', 'hospital'],
+    expansions: ['shopping', 'guide', 'errands', 'city', 'assistance', 'শপিং', 'ঘোরা', 'ভ্রমণ', 'সহায়তা'],
   },
   {
     triggers: ['অফিস', 'কর্পোরেট', 'মিটিং', 'সহায়তা', 'কাজ', 'office', 'corporate', 'business', 'assistance'],

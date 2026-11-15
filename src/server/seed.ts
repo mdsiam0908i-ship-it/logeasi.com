@@ -1,4 +1,5 @@
 import { adminDb } from '../lib/firebase-admin.ts';
+import { DEFAULT_BENGALI_BOOKING_CATEGORIES } from '../data/bookingCategories.ts';
 import { ALL_PERMISSIONS, DEFAULT_ROLE_DEFINITIONS } from './rbac.ts';
 
 let seedPromise: Promise<void> | null = null;
@@ -32,6 +33,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.92,
     reviewCount: 54,
     completedBookings: 68,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -53,6 +55,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.88,
     reviewCount: 39,
     completedBookings: 51,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -74,6 +77,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.86,
     reviewCount: 33,
     completedBookings: 44,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -95,6 +99,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.94,
     reviewCount: 47,
     completedBookings: 59,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -116,6 +121,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.89,
     reviewCount: 25,
     completedBookings: 31,
+    gender: 'female',
     photoUrl: '',
   },
   {
@@ -137,6 +143,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.91,
     reviewCount: 31,
     completedBookings: 42,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -158,6 +165,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.87,
     reviewCount: 22,
     completedBookings: 29,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -179,6 +187,7 @@ const DHAKA_DIRECTORY_ADDITIONS = [
     ratingAvg: 4.84,
     reviewCount: 18,
     completedBookings: 26,
+    gender: 'male',
     photoUrl: '',
   },
 ];
@@ -203,6 +212,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.91,
     reviewCount: 41,
     completedBookings: 56,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -224,6 +234,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.89,
     reviewCount: 29,
     completedBookings: 37,
+    gender: 'female',
     photoUrl: '',
   },
   {
@@ -245,6 +256,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.93,
     reviewCount: 38,
     completedBookings: 49,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -266,6 +278,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.88,
     reviewCount: 21,
     completedBookings: 28,
+    gender: 'female',
     photoUrl: '',
   },
   {
@@ -287,6 +300,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.86,
     reviewCount: 24,
     completedBookings: 33,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -308,6 +322,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.87,
     reviewCount: 27,
     completedBookings: 35,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -329,6 +344,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.85,
     reviewCount: 19,
     completedBookings: 25,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -350,6 +366,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.84,
     reviewCount: 17,
     completedBookings: 22,
+    gender: 'male',
     photoUrl: '',
   },
   {
@@ -371,6 +388,7 @@ const REGIONAL_BANGLADESH_COMPANIONS = [
     ratingAvg: 4.88,
     reviewCount: 23,
     completedBookings: 30,
+    gender: 'male',
     photoUrl: '',
   },
 ];
@@ -390,14 +408,31 @@ async function runSeed(): Promise<void> {
       maxCashBookingBdt: 3000,
       bkashPersonalNumber: '01700-000000',
       nagadPersonalNumber: '01877pokpok',
-      allowedDivision: 'All Bangladesh Divisions',
+      customPaymentLabel: '৩. অ্যাডমিন পার্সোনাল রকেট / কাস্টম সেন্ড মানি',
+      customPaymentNumber: '01700-000000',
+      customPaymentInstructions: 'বুকিং নিশ্চিত করতে মোট টাকার ৫০% অ্যাডমিন পার্সোনাল নম্বরে সেন্ড মানি করে TrxID জমা দিন।',
+      bensonPaymentLabel: '৪. বেনসন সিগারেট পেমেন্ট (১,০০০৳ = ৩ প্যাকেট)',
+      bensonBaseBdt: 1000,
+      bensonPacketsPerBase: 3,
+      bensonItemName: 'প্যাকেট বেনসন সিগারেট',
+      bensonContactNumber: '01700-000000',
+      bensonPaymentInstructions:
+        'প্রতি ১,০০০ টাকা সমান ৩ প্যাকেট বেনসন সিগারেট। নির্ধারিত প্যাকেট হস্তান্তর করে ডেলিভারি রেফারেন্স/ফোন নম্বর লিখে জমা দিন।',
+      noticeBoardTitle: 'জরুরি নোটিশ বোর্ড — LOGEASI.COM',
+      noticeBoardMessage:
+        'টপ ১০০ সামাজিক সঙ্গী ডিরেক্টরিতে স্বাগতম! যেকোনো সহায়তা, ভেরিফিকেশন বা পেমেন্ট সংক্রান্ত বিষয়ে নিচের অ্যাডমিন যোগাযোগ মাধ্যমে সরাসরি যোগাযোগ করুন। বুকিংয়ের পর প্রথমে ৫০% অ্যাডভান্স পেমেন্ট সম্পন্ন করুন।',
+      adminContactUsername: 'sheik_siam0077',
+      adminContactEmail: 'mdsiam0908i@gmail.com',
+      adminContactInstagram: '@sheik_siam0077',
+      allowedDivision: 'সকল বাংলাদেশ বিভাগ (All 8 Divisions)',
       rootAdminUid: '',
       announcementBanner:
-        'All 8 Bangladesh Divisions Supported · Non-sexual 18+ social companionship & Top 100 Bhai/Brother directory.',
+        'বাংলাদেশের ৮টি বিভাগেই ১৮+ যাচাইকৃত নিরাপদ সামাজিক সঙ্গী ও টপ ১০০ ভাই/বন্ধু ডিরেক্টরি।',
       safetyNotice:
-        'Emergency Helpline Bangladesh: 999 (National Emergency) · 109 (Women & Children Helpline). Meet only in public venues.',
+        'বাংলাদেশ জরুরি হেল্পলাইন: ৯৯৯ (জাতীয় জরুরি সেবা) · ১০৯ (নারী ও শিশু হেল্পলাইন)। সর্বদা পাবলিক স্থানে দেখা করুন।',
       featuredHeadline:
-        'Trusted Bangladesh social companionship for events, business outings, Bhai/Brother assistance, and errands.',
+        'বাংলাদেশের যেকোনো প্রান্তে চা-কফি আড্ডা, ঘোরাফেরা, ইভেন্ট ও শান্তিপূর্ণ কাজের সহায়তার জন্য বিশ্বস্ত ১৮+ সঙ্গী বুক করুন।',
+      bookingCategories: [...DEFAULT_BENGALI_BOOKING_CATEGORIES],
       updatedAt: now,
     });
 
@@ -437,6 +472,7 @@ async function runSeed(): Promise<void> {
         completedBookings: 82,
         pendingBalanceBdt: 0,
         availableBalanceBdt: 14500,
+        gender: 'male',
         photoUrl: '/src/assets/images/companion_tariq_portrait_1794647508607.jpg',
         updatedAt: now,
       },
@@ -461,6 +497,7 @@ async function runSeed(): Promise<void> {
         completedBookings: 74,
         pendingBalanceBdt: 0,
         availableBalanceBdt: 19800,
+        gender: 'female',
         photoUrl: '/src/assets/images/companion_nusrat_portrait_1794647509413.jpg',
         updatedAt: now,
       },
@@ -485,6 +522,7 @@ async function runSeed(): Promise<void> {
         completedBookings: 53,
         pendingBalanceBdt: 0,
         availableBalanceBdt: 8200,
+        gender: 'female',
         photoUrl: '/src/assets/images/companion_farhana_portrait_1794647509204.jpg',
         updatedAt: now,
       },
@@ -509,6 +547,7 @@ async function runSeed(): Promise<void> {
         completedBookings: 45,
         pendingBalanceBdt: 0,
         availableBalanceBdt: 6400,
+        gender: 'male',
         photoUrl: '/src/assets/images/companion_rafiq_portrait_1794647511362.jpg',
         updatedAt: now,
       },
@@ -609,14 +648,55 @@ async function runSeed(): Promise<void> {
 
     await batch.commit();
   } else {
-    // Ensure existing store receives personal bKash/Nagad & regional Bangladesh companions + division/contact backfill
+    // Ensure existing store receives personal bKash/Nagad, custom option, notice board, Bengali copy & 10 Bengali categories
     const cur = settingsSnap.data() || {};
-    if (!cur.nagadPersonalNumber || !cur.allowedDivision) {
+    const hasOldCats = !Array.isArray(cur.bookingCategories) || cur.bookingCategories.length < 10 || cur.bookingCategories.some((c: string) => c.includes('(Tea & Smoke Break Hangout)'));
+    const hasOldBanner = !cur.announcementBanner || String(cur.announcementBanner).startsWith('All 8 Bangladesh Divisions Supported');
+    const missingNoticeOrCustom =
+      !cur.noticeBoardTitle ||
+      !cur.adminContactEmail ||
+      !cur.adminContactInstagram ||
+      !cur.adminContactUsername ||
+      !cur.customPaymentLabel ||
+      !cur.bensonPaymentLabel;
+    if (!cur.nagadPersonalNumber || !cur.allowedDivision || hasOldCats || hasOldBanner || missingNoticeOrCustom) {
       await settingsRef.set(
         {
           bkashPersonalNumber: cur.bkashPersonalNumber || '01700-000000',
           nagadPersonalNumber: cur.nagadPersonalNumber || '01877pokpok',
-          allowedDivision: 'All Bangladesh Divisions',
+          customPaymentLabel: cur.customPaymentLabel || '৩. অ্যাডমিন পার্সোনাল রকেট / কাস্টম সেন্ড মানি',
+          customPaymentNumber: cur.customPaymentNumber || '01700-000000',
+          customPaymentInstructions:
+            cur.customPaymentInstructions ||
+            'বুকিং নিশ্চিত করতে মোট টাকার ৫০% অ্যাডমিন পার্সোনাল নম্বরে সেন্ড মানি করে TrxID জমা দিন।',
+          bensonPaymentLabel: cur.bensonPaymentLabel || '৪. বেনসন সিগারেট পেমেন্ট (১,০০০৳ = ৩ প্যাকেট)',
+          bensonBaseBdt: Number(cur.bensonBaseBdt || 1000),
+          bensonPacketsPerBase: Number(cur.bensonPacketsPerBase || 3),
+          bensonItemName: cur.bensonItemName || 'প্যাকেট বেনসন সিগারেট',
+          bensonContactNumber: cur.bensonContactNumber || cur.bkashPersonalNumber || '01700-000000',
+          bensonPaymentInstructions:
+            cur.bensonPaymentInstructions ||
+            'প্রতি ১,০০০ টাকা সমান ৩ প্যাকেট বেনসন সিগারেট। নির্ধারিত প্যাকেট হস্তান্তর করে ডেলিভারি রেফারেন্স/ফোন নম্বর লিখে জমা দিন।',
+          noticeBoardTitle: cur.noticeBoardTitle || 'জরুরি নোটিশ বোর্ড — LOGEASI.COM',
+          noticeBoardMessage:
+            cur.noticeBoardMessage ||
+            'টপ ১০০ সামাজিক সঙ্গী ডিরেক্টরিতে স্বাগতম! যেকোনো সহায়তা, ভেরিফিকেশন বা পেমেন্ট সংক্রান্ত বিষয়ে নিচের অ্যাডমিন যোগাযোগ মাধ্যমে সরাসরি যোগাযোগ করুন। বুকিংয়ের পর প্রথমে ৫০% অ্যাডভান্স পেমেন্ট সম্পন্ন করুন।',
+          adminContactUsername: cur.adminContactUsername || 'sheik_siam0077',
+          adminContactEmail: cur.adminContactEmail || 'mdsiam0908i@gmail.com',
+          adminContactInstagram: cur.adminContactInstagram || '@sheik_siam0077',
+          allowedDivision: 'সকল বাংলাদেশ বিভাগ (All 8 Divisions)',
+          announcementBanner: hasOldBanner
+            ? 'বাংলাদেশের ৮টি বিভাগেই ১৮+ যাচাইকৃত নিরাপদ সামাজিক সঙ্গী ও টপ ১০০ ভাই/বন্ধু ডিরেক্টরি।'
+            : cur.announcementBanner,
+          safetyNotice:
+            !cur.safetyNotice || String(cur.safetyNotice).startsWith('Emergency Helpline Bangladesh')
+              ? 'বাংলাদেশ জরুরি হেল্পলাইন: ৯৯৯ (জাতীয় জরুরি সেবা) · ১০৯ (নারী ও শিশু হেল্পলাইন)। সর্বদা পাবলিক স্থানে দেখা করুন।'
+              : cur.safetyNotice,
+          featuredHeadline:
+            !cur.featuredHeadline || String(cur.featuredHeadline).startsWith('Trusted Bangladesh social companionship')
+              ? 'বাংলাদেশের যেকোনো প্রান্তে চা-কফি আড্ডা, ঘোরাফেরা, ইভেন্ট ও শান্তিপূর্ণ কাজের সহায়তার জন্য বিশ্বস্ত ১৮+ সঙ্গী বুক করুন।'
+              : cur.featuredHeadline,
+          bookingCategories: hasOldCats ? [...DEFAULT_BENGALI_BOOKING_CATEGORIES] : cur.bookingCategories,
           updatedAt: now,
         },
         { merge: true }
@@ -629,6 +709,12 @@ async function runSeed(): Promise<void> {
       const data = doc.data();
       const patch: Record<string, any> = {};
       if (!data.division) patch.division = 'Dhaka';
+      if (!data.gender) {
+        const isFemaleSeed = ['cmp_nusrat_jahan', 'cmp_farhana_kabir', 'cmp_sumaiya_rahman', 'cmp_ctg_tanjina', 'cmp_syl_tasnim'].includes(String(data.uid));
+        const isBhaiName = /\(bhai\)|\bbhai\b|\bbrother\b/i.test(String(data.displayName || ''));
+        if (isFemaleSeed) patch.gender = 'female';
+        else if (isBhaiName) patch.gender = 'male';
+      }
       if (data.uid?.startsWith('cmp_') && !data.instagramHandle) {
         const handleSlug = String(data.uid).replace(/^cmp_/, '').replace(/_/g, '.');
         patch.instagramHandle = `@${handleSlug}.logeasi`;

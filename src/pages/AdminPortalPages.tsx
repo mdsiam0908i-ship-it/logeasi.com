@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   Activity,
   BarChart3,
+  Camera,
   CheckCircle2,
   Copy,
   Download,
@@ -14,9 +15,12 @@ import {
   Shuffle,
   Sparkles,
   Users,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
+import { PaymentGatewayLogo } from '../components/PaymentGatewayLogo.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
 import {
   containsUnsafeViolenceTerm,
@@ -384,6 +388,10 @@ export function AdminLoginPage() {
           </div>
         )}
       </div>
+
+      <div className="mt-6">
+        <DeveloperBanner variant="card" />
+      </div>
     </main>
   );
 }
@@ -415,6 +423,21 @@ export function RootAdminDashboardPage() {
   const [banner, setBanner] = useState(platformPublic.announcementBanner || '');
   const [safetyNote, setSafetyNote] = useState(platformPublic.safetyNotice || '');
   const [headline, setHeadline] = useState(platformPublic.featuredHeadline || '');
+  const [noticeBoardTitle, setNoticeBoardTitle] = useState(
+    platformPublic.noticeBoardTitle || 'জরুরি নোটিশ বোর্ড — LOGEASI.COM'
+  );
+  const [noticeBoardMessage, setNoticeBoardMessage] = useState(
+    platformPublic.noticeBoardMessage || ''
+  );
+  const [adminContactUsername, setAdminContactUsername] = useState(
+    platformPublic.adminContactUsername || 'sheik_siam0077'
+  );
+  const [adminContactEmail, setAdminContactEmail] = useState(
+    platformPublic.adminContactEmail || 'mdsiam0908i@gmail.com'
+  );
+  const [adminContactInstagram, setAdminContactInstagram] = useState(
+    platformPublic.adminContactInstagram || '@sheik_siam0077'
+  );
   const [categoriesList, setCategoriesList] = useState<string[]>(
     platformPublic.bookingCategories && platformPublic.bookingCategories.length > 0
       ? platformPublic.bookingCategories
@@ -453,7 +476,12 @@ export function RootAdminDashboardPage() {
     if (platformPublic.bookingCategories && platformPublic.bookingCategories.length > 0) {
       setCategoriesList(platformPublic.bookingCategories);
     }
-  }, [platformPublic.bookingCategories]);
+    if (platformPublic.noticeBoardTitle) setNoticeBoardTitle(platformPublic.noticeBoardTitle);
+    if (platformPublic.noticeBoardMessage) setNoticeBoardMessage(platformPublic.noticeBoardMessage);
+    if (platformPublic.adminContactUsername) setAdminContactUsername(platformPublic.adminContactUsername);
+    if (platformPublic.adminContactEmail) setAdminContactEmail(platformPublic.adminContactEmail);
+    if (platformPublic.adminContactInstagram) setAdminContactInstagram(platformPublic.adminContactInstagram);
+  }, [platformPublic]);
 
   const openCompanionPowerEditor = (cmp: CompanionProfile) => {
     setEditingCompanion(cmp);
@@ -482,7 +510,7 @@ export function RootAdminDashboardPage() {
         method: 'PATCH',
         body: JSON.stringify(cmpForm),
       });
-      setNotice(`Companion ${cmpForm.displayName} updated by Admin.`);
+      setNotice(`সঙ্গী ${cmpForm.displayName}-এর তথ্য অ্যাডমিন দ্বারা হালনাগাদ হয়েছে।`);
       setEditingCompanion(null);
       loadAll();
     } catch (err: any) {
@@ -495,9 +523,9 @@ export function RootAdminDashboardPage() {
     try {
       await apiRequest(`/api/admin/verifications/${id}/review`, {
         method: 'POST',
-        body: JSON.stringify({ decision, reviewerNote: `Reviewed by admin (${decision})` }),
+        body: JSON.stringify({ decision, reviewerNote: `অ্যাডমিন দ্বারা পর্যালোচিত (${decision})` }),
       });
-      setNotice(`Verification ${id} marked ${decision}.`);
+      setNotice(`ভেরিফিকেশন ${id} এখন ${decision === 'approved' ? 'অনুমোদিত' : 'বাতিল'} হয়েছে।`);
       loadAll();
     } catch (err: any) {
       setNotice(err.message);
@@ -512,7 +540,7 @@ export function RootAdminDashboardPage() {
         method: 'POST',
         body: JSON.stringify({ status: next }),
       });
-      setNotice(`User ${uid} updated to ${next}.`);
+      setNotice(`ব্যবহারকারী ${uid}-এর অবস্থা ${next === 'suspended' ? 'স্থগিত' : 'সক্রিয়'} করা হয়েছে।`);
       loadAll();
     } catch (err: any) {
       setNotice(err.message);
@@ -524,9 +552,9 @@ export function RootAdminDashboardPage() {
     try {
       await apiRequest(`/api/admin/tickets/${id}/reply`, {
         method: 'POST',
-        body: JSON.stringify({ adminReply: replyMap[id] || 'Resolved by support.', status: 'resolved' }),
+        body: JSON.stringify({ adminReply: replyMap[id] || 'সাপোর্ট টিম দ্বারা সমাধান করা হয়েছে।', status: 'resolved' }),
       });
-      setNotice(`Support ticket ${id} resolved.`);
+      setNotice(`সাপোর্ট টিকিট ${id} সমাধান করা হয়েছে।`);
       loadAll();
     } catch (err: any) {
       setNotice(err.message);
@@ -543,10 +571,15 @@ export function RootAdminDashboardPage() {
           announcementBanner: banner,
           safetyNotice: safetyNote,
           featuredHeadline: headline,
+          noticeBoardTitle,
+          noticeBoardMessage,
+          adminContactUsername,
+          adminContactEmail,
+          adminContactInstagram,
         }),
       });
       await refreshPublicPlatform();
-      setNotice('Website content settings updated.');
+      setNotice('ওয়েবসাইট কন্টেন্ট ও নোটিশ বোর্ড তথ্য সফলভাবে হালনাগাদ হয়েছে।');
     } catch (err: any) {
       setNotice(err.message);
     }
@@ -561,7 +594,7 @@ export function RootAdminDashboardPage() {
       });
       setCategoriesList(res.bookingCategories || nextList);
       await refreshPublicPlatform();
-      setNotice('Booking categories updated for all customers & companions.');
+      setNotice('সব কাস্টমার ও সঙ্গীর জন্য বুকিং ক্যাটাগরি হালনাগাদ হয়েছে।');
     } catch (err: any) {
       setNotice(err.message);
     }
@@ -591,9 +624,9 @@ export function RootAdminDashboardPage() {
   const maxGatewayVol = Math.max(1, ...gateways.map((g) => g.volumeBdt));
 
   return (
-    <AdminShell activeTab="dashboard" title="Root & Operations Dashboard">
+    <AdminShell activeTab="dashboard" title="রুট ও অপারেশন ড্যাশবোর্ড">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-600">Live marketplace telemetry across Bangladesh</p>
+        <p className="text-xs text-slate-600">বাংলাদেশ জুড়ে মার্কেটপ্লেসের লাইভ পরিসংখ্যান</p>
         <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-semibold">
           {['7', '30', '90', '365'].map((d) => (
             <button
@@ -617,18 +650,18 @@ export function RootAdminDashboardPage() {
       {/* 12 KPI Grid */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {[
-          { label: 'Total Customers', val: kpis.totalCustomers ?? 0 },
-          { label: 'Total Companions', val: kpis.totalCompanions ?? 0 },
-          { label: 'Verified Companions', val: kpis.verifiedCompanions ?? 0 },
-          { label: 'Pending Verifications', val: kpis.pendingVerifications ?? 0 },
-          { label: 'Active Bookings', val: kpis.activeBookings ?? 0 },
-          { label: 'Completed Bookings', val: kpis.completedBookings ?? 0 },
-          { label: 'Cancelled Bookings', val: kpis.cancelledBookings ?? 0 },
-          { label: 'Total Volume', val: formatBdt(kpis.totalVolumeBdt ?? 0) },
-          { label: 'Platform Revenue', val: formatBdt(kpis.platformRevenueBdt ?? 0) },
-          { label: 'Pending Payouts', val: kpis.pendingPayouts ?? 0 },
-          { label: 'Refund Requests', val: kpis.refundRequests ?? 0 },
-          { label: 'Open Complaints', val: kpis.openComplaints ?? 0 },
+          { label: 'মোট কাস্টমার', val: kpis.totalCustomers ?? 0 },
+          { label: 'মোট সঙ্গী', val: kpis.totalCompanions ?? 0 },
+          { label: 'যাচাইকৃত সঙ্গী', val: kpis.verifiedCompanions ?? 0 },
+          { label: 'অপেক্ষমাণ ভেরিফিকেশন', val: kpis.pendingVerifications ?? 0 },
+          { label: 'চলমান বুকিং', val: kpis.activeBookings ?? 0 },
+          { label: 'সম্পন্ন বুকিং', val: kpis.completedBookings ?? 0 },
+          { label: 'বাতিল বুকিং', val: kpis.cancelledBookings ?? 0 },
+          { label: 'মোট লেনদেন', val: formatBdt(kpis.totalVolumeBdt ?? 0) },
+          { label: 'প্ল্যাটফর্ম আয়', val: formatBdt(kpis.platformRevenueBdt ?? 0) },
+          { label: 'অপেক্ষমাণ পেআউট', val: kpis.pendingPayouts ?? 0 },
+          { label: 'রিফান্ড অনুরোধ', val: kpis.refundRequests ?? 0 },
+          { label: 'খোলা অভিযোগ', val: kpis.openComplaints ?? 0 },
         ].map((item) => (
           <div key={item.label} className="bg-white border border-slate-200 rounded-xl p-4">
             <p className="text-xs text-slate-500">{item.label}</p>
@@ -640,12 +673,15 @@ export function RootAdminDashboardPage() {
       {/* Interactive Chart + Recent Audit Activity */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-4">
-          <h2 className="font-display text-base font-bold text-slate-950">Payment Gateway Volume (BDT)</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">পেমেন্ট গেটওয়ে ভলিউম (BDT)</h2>
           <div className="space-y-3">
             {gateways.map((g) => (
               <div key={g.gateway} className="space-y-1">
-                <div className="flex justify-between text-xs">
-                  <span className="font-semibold text-slate-800">{g.gateway} ({g.count} txns)</span>
+                <div className="flex justify-between items-center text-xs">
+                  <span className="font-semibold text-slate-800 inline-flex items-center gap-2 uppercase">
+                    <PaymentGatewayLogo gateway={g.gateway} size="xs" />
+                    {g.gateway} ({g.count} লেনদেন)
+                  </span>
                   <span className="font-mono tabular-nums text-slate-900">{formatBdt(g.volumeBdt)}</span>
                 </div>
                 <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
@@ -661,7 +697,7 @@ export function RootAdminDashboardPage() {
 
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-5 space-y-3">
           <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-blue-700" /> Recent Governance Activity
+            <Activity className="w-4 h-4 text-blue-700" /> সাম্প্রতিক প্রশাসনিক কার্যক্রম
           </h2>
           <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto text-xs">
             {(overview?.recentActivity || []).map((a: AuditLogRecord) => (
@@ -676,24 +712,24 @@ export function RootAdminDashboardPage() {
 
       {/* 18+ Verification Queue */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-slate-950">18+ Identity Verification Approvals</h2>
+        <h2 className="font-display text-lg font-bold text-slate-950">১৮+ পরিচয় যাচাই অনুমোদন</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Applicant</th>
-                <th className="py-2 px-3">Document</th>
-                <th className="py-2 px-3">Age</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 pl-3 text-right">Action</th>
+                <th className="py-2 pr-3">আবেদনকারী</th>
+                <th className="py-2 px-3">ডকুমেন্ট (NID / রোল)</th>
+                <th className="py-2 px-3">বয়স</th>
+                <th className="py-2 px-3">অবস্থা</th>
+                <th className="py-2 pl-3 text-right">সিদ্ধান্ত</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {verifications.map((v) => (
                 <tr key={v.id}>
                   <td className="py-2.5 pr-3 font-semibold text-slate-900">{v.fullName} ({v.city})</td>
-                  <td className="py-2.5 px-3 font-mono uppercase">{v.documentType} {v.documentNumberMasked}</td>
-                  <td className="py-2.5 px-3 font-mono tabular-nums">{v.calculatedAge} yrs</td>
+                  <td className="py-2.5 px-3 font-mono uppercase">{v.documentType.replace(/_/g, ' ')} {v.documentNumberMasked}</td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums">{v.calculatedAge} বছর</td>
                   <td className="py-2.5 px-3 capitalize font-medium">{v.status}</td>
                   <td className="py-2.5 pl-3 text-right space-x-2">
                     <button
@@ -701,14 +737,14 @@ export function RootAdminDashboardPage() {
                       onClick={() => reviewVerification(v.id, 'approved')}
                       className="px-2.5 py-1 bg-blue-700 text-white rounded font-semibold cursor-pointer"
                     >
-                      Approve
+                      অনুমোদন
                     </button>
                     <button
                       type="button"
                       onClick={() => reviewVerification(v.id, 'rejected')}
                       className="px-2.5 py-1 border border-red-200 text-red-700 rounded font-semibold cursor-pointer"
                     >
-                      Reject
+                      বাতিল
                     </button>
                   </td>
                 </tr>
@@ -723,13 +759,13 @@ export function RootAdminDashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="font-display text-lg font-bold text-slate-950 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-blue-700" /> Companion Directory & Contact Power Controls
+              <Sparkles className="w-4 h-4 text-blue-700" /> সঙ্গী ডিরেক্টরি ও অ্যাডমিন পাওয়ার কন্ট্রোল
             </h2>
             <p className="text-xs text-slate-500">
-              Directly edit any companion’s Instagram, WhatsApp, Email, verification status, rates, and availability.
+              যেকোনো সঙ্গীর ছবি, Instagram, WhatsApp, Email, ভেরিফিকেশন অবস্থা, রেট ও প্রাপ্যতা সরাসরি পরিবর্তন করুন।
             </p>
           </div>
-          <span className="text-xs font-mono text-blue-700">{companions.length} companions</span>
+          <span className="text-xs font-mono text-blue-700">{companions.length} জন সঙ্গী</span>
         </div>
 
         {editingCompanion && (
@@ -740,10 +776,10 @@ export function RootAdminDashboardPage() {
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
                 <p className="text-[11px] font-mono text-blue-700 font-bold">
-                  ADMIN COMPANION POWER OVERRIDE ({editingCompanion.uid})
+                  অ্যাডমিন সঙ্গী পাওয়ার এডিটর ({editingCompanion.uid})
                 </p>
                 <h3 className="font-display text-base font-bold text-slate-950">
-                  Editing: {editingCompanion.displayName}
+                  সম্পাদনা চলছে: {editingCompanion.displayName}
                 </h3>
               </div>
               <button
@@ -751,20 +787,20 @@ export function RootAdminDashboardPage() {
                 onClick={() => setEditingCompanion(null)}
                 className="px-3 py-1 border border-slate-300 bg-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                Cancel
+                বাতিল
               </button>
             </div>
 
             <DevicePhotoPicker
-              label="Companion Picture (Add / Change Directly from Device)"
-              helperText="Upload this companion's portrait straight from your phone or computer — no image URL needed."
+              label="সঙ্গীর ছবি (ডিভাইস থেকে যুক্ত / পরিবর্তন করুন)"
+              helperText="ফোন বা কম্পিউটার থেকে সরাসরি সঙ্গীর ছবি আপলোড করুন — কোনো ইমেজ URL লাগবে না।"
               value={cmpForm.photoUrl}
               onChange={(photoUrl) => setCmpForm((p) => ({ ...p, photoUrl }))}
             />
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Display Name</label>
+                <label className="font-semibold text-slate-700">প্রদর্শিত নাম</label>
                 <input
                   required
                   type="text"
@@ -774,7 +810,7 @@ export function RootAdminDashboardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Division</label>
+                <label className="font-semibold text-slate-700">বিভাগ</label>
                 <select
                   value={cmpForm.division}
                   onChange={(e) => setCmpForm((p) => ({ ...p, division: e.target.value }))}
@@ -786,7 +822,7 @@ export function RootAdminDashboardPage() {
                 </select>
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">City / District</label>
+                <label className="font-semibold text-slate-700">শহর / জেলা</label>
                 <input
                   type="text"
                   value={cmpForm.city}
@@ -798,7 +834,7 @@ export function RootAdminDashboardPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Instagram Handle</label>
+                <label className="font-semibold text-slate-700">ইনস্টাগ্রাম হ্যান্ডেল</label>
                 <input
                   type="text"
                   value={cmpForm.instagramHandle}
@@ -808,7 +844,7 @@ export function RootAdminDashboardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">WhatsApp Number</label>
+                <label className="font-semibold text-slate-700">হোয়াটসঅ্যাপ নম্বর</label>
                 <input
                   type="text"
                   value={cmpForm.whatsappNumber}
@@ -818,7 +854,7 @@ export function RootAdminDashboardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Public Contact Email</label>
+                <label className="font-semibold text-slate-700">পাবলিক যোগাযোগের ইমেইল</label>
                 <input
                   type="email"
                   value={cmpForm.contactEmail}
@@ -831,7 +867,7 @@ export function RootAdminDashboardPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs items-end">
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Hourly BDT</label>
+                <label className="font-semibold text-slate-700">ঘণ্টাপ্রতি BDT</label>
                 <input
                   type="number"
                   min={500}
@@ -841,7 +877,7 @@ export function RootAdminDashboardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Session BDT</label>
+                <label className="font-semibold text-slate-700">সেশন BDT</label>
                 <input
                   type="number"
                   min={1000}
@@ -851,16 +887,16 @@ export function RootAdminDashboardPage() {
                 />
               </div>
               <div className="space-y-1">
-                <label className="font-semibold text-slate-700">Verification Status</label>
+                <label className="font-semibold text-slate-700">ভেরিফিকেশন অবস্থা</label>
                 <select
                   value={cmpForm.verificationStatus}
                   onChange={(e) => setCmpForm((p) => ({ ...p, verificationStatus: e.target.value }))}
                   className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2"
                 >
-                  <option value="approved">Approved (Verified)</option>
-                  <option value="pending">Pending</option>
-                  <option value="unverified">Unverified</option>
-                  <option value="rejected">Rejected</option>
+                  <option value="approved">অনুমোদিত (ভেরিফায়েড)</option>
+                  <option value="pending">অপেক্ষমাণ (Pending)</option>
+                  <option value="unverified">অযাচাইকৃত</option>
+                  <option value="rejected">বাতিল</option>
                 </select>
               </div>
               <label className="flex items-center gap-2 font-semibold text-slate-800 py-2">
@@ -869,7 +905,7 @@ export function RootAdminDashboardPage() {
                   checked={cmpForm.isAvailableNow}
                   onChange={(e) => setCmpForm((p) => ({ ...p, isAvailableNow: e.target.checked }))}
                 />
-                Available Now
+                এখনই উপলব্ধ
               </label>
             </div>
 
@@ -877,7 +913,7 @@ export function RootAdminDashboardPage() {
               type="submit"
               className="px-5 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg cursor-pointer"
             >
-              Save Companion Admin Changes
+              অ্যাডমিন পরিবর্তন সংরক্ষণ করুন
             </button>
           </form>
         )}
@@ -886,12 +922,12 @@ export function RootAdminDashboardPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Companion</th>
-                <th className="py-2 px-3">Location</th>
-                <th className="py-2 px-3">Social & Contact</th>
-                <th className="py-2 px-3">Rates</th>
-                <th className="py-2 px-3">Verification</th>
-                <th className="py-2 pl-3 text-right">Power Action</th>
+                <th className="py-2 pr-3">সঙ্গী</th>
+                <th className="py-2 px-3">অবস্থান</th>
+                <th className="py-2 px-3">সোশ্যাল ও যোগাযোগ</th>
+                <th className="py-2 px-3">রেট</th>
+                <th className="py-2 px-3">ভেরিফিকেশন</th>
+                <th className="py-2 pl-3 text-right">পাওয়ার অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -908,7 +944,7 @@ export function RootAdminDashboardPage() {
                             className="w-full h-full object-cover object-top"
                           />
                         ) : (
-                          'NO PIC'
+                          'ছবি নেই'
                         )}
                       </div>
                       <span className="font-semibold text-slate-900">{c.displayName}</span>
@@ -918,7 +954,7 @@ export function RootAdminDashboardPage() {
                   <td className="py-2.5 px-3 text-[11px] text-slate-600 font-mono">
                     {c.instagramHandle || '—'} · {c.whatsappNumber || '—'}
                   </td>
-                  <td className="py-2.5 px-3 font-mono tabular-nums">{formatBdt(c.hourlyRateBdt)}/hr</td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums">{formatBdt(c.hourlyRateBdt)}/ঘণ্টা</td>
                   <td className="py-2.5 px-3 capitalize font-semibold text-blue-700">{c.verificationStatus}</td>
                   <td className="py-2.5 pl-3 text-right">
                     <button
@@ -926,7 +962,7 @@ export function RootAdminDashboardPage() {
                       onClick={() => openCompanionPowerEditor(c)}
                       className="px-2.5 py-1 bg-slate-900 hover:bg-blue-700 text-white rounded font-semibold cursor-pointer"
                     >
-                      Edit / Photo
+                      সম্পাদনা / ছবি
                     </button>
                   </td>
                 </tr>
@@ -938,15 +974,15 @@ export function RootAdminDashboardPage() {
 
       {/* User Suspension / Reinstatement */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-slate-950">Customer & Companion Account Control</h2>
+        <h2 className="font-display text-lg font-bold text-slate-950">কাস্টমার ও সঙ্গী অ্যাকাউন্ট নিয়ন্ত্রণ</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Name</th>
-                <th className="py-2 px-3">Role</th>
-                <th className="py-2 px-3">Status</th>
-                <th className="py-2 pl-3 text-right">Action</th>
+                <th className="py-2 pr-3">নাম</th>
+                <th className="py-2 px-3">ভূমিকা</th>
+                <th className="py-2 px-3">অবস্থা</th>
+                <th className="py-2 pl-3 text-right">পদক্ষেপ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -961,7 +997,7 @@ export function RootAdminDashboardPage() {
                       onClick={() => toggleUserStatus(u.uid, u.status)}
                       className="px-2.5 py-1 border border-slate-300 rounded font-semibold hover:bg-slate-50 cursor-pointer"
                     >
-                      {u.status === 'suspended' ? 'Reinstate' : 'Suspend'}
+                      {u.status === 'suspended' ? 'পুনরায় সক্রিয়' : 'স্থগিত করুন'}
                     </button>
                   </td>
                 </tr>
@@ -974,9 +1010,9 @@ export function RootAdminDashboardPage() {
       {/* Support Tickets Queue + Website Content Manager */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-          <h2 className="font-display text-base font-bold text-slate-950">Support & Dispute Tickets</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">সাপোর্ট ও অভিযোগ টিকিট</h2>
           {tickets.length === 0 ? (
-            <p className="text-xs text-slate-500">No open support tickets.</p>
+            <p className="text-xs text-slate-500">কোনো খোলা সাপোর্ট টিকিট নেই।</p>
           ) : (
             <div className="space-y-3">
               {tickets.slice(0, 6).map((t) => (
@@ -992,7 +1028,7 @@ export function RootAdminDashboardPage() {
                       type="text"
                       value={replyMap[t.id] || ''}
                       onChange={(e) => setReplyMap((p) => ({ ...p, [t.id]: e.target.value }))}
-                      placeholder="Admin resolution note..."
+                      placeholder="অ্যাডমিনের সমাধান নোট..."
                       className="flex-1 border border-slate-200 rounded px-2 py-1"
                     />
                     <button
@@ -1000,7 +1036,7 @@ export function RootAdminDashboardPage() {
                       onClick={() => replyTicket(t.id)}
                       className="px-3 py-1 bg-slate-900 text-white rounded font-semibold cursor-pointer"
                     >
-                      Resolve
+                      সমাধান
                     </button>
                   </div>
                 </div>
@@ -1010,9 +1046,9 @@ export function RootAdminDashboardPage() {
         </div>
 
         <form onSubmit={saveContent} className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-3">
-          <h2 className="font-display text-base font-bold text-slate-950">Website Content Management</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">ওয়েবসাইট কন্টেন্ট ও নোটিশ বোর্ড ম্যানেজমেন্ট</h2>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Announcement Banner</label>
+            <label className="text-xs font-semibold text-slate-700">ঘোষণা ব্যানার (Announcement)</label>
             <input
               type="text"
               value={banner}
@@ -1021,7 +1057,7 @@ export function RootAdminDashboardPage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Hero Headline Copy</label>
+            <label className="text-xs font-semibold text-slate-700">হিরো হেডলাইন লেখা</label>
             <input
               type="text"
               value={headline}
@@ -1030,7 +1066,7 @@ export function RootAdminDashboardPage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">Safety Helpline Notice</label>
+            <label className="text-xs font-semibold text-slate-700">নিরাপত্তা হেল্পলাইন নোটিশ</label>
             <input
               type="text"
               value={safetyNote}
@@ -1038,11 +1074,61 @@ export function RootAdminDashboardPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
             />
           </div>
+          <div className="pt-2 border-t border-slate-100 space-y-2.5">
+            <p className="text-xs font-bold text-blue-800">টপ ১০০ নোটিশ বোর্ড পপ-আপ ও অ্যাডমিন কন্টাক্ট</p>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">নোটিশ বোর্ড শিরোনাম</label>
+              <input
+                type="text"
+                value={noticeBoardTitle}
+                onChange={(e) => setNoticeBoardTitle(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">নোটিশ বোর্ড বার্তা</label>
+              <textarea
+                rows={2}
+                value={noticeBoardMessage}
+                onChange={(e) => setNoticeBoardMessage(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-xs"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-700">অ্যাডমিন ইউজারনেম</label>
+                <input
+                  type="text"
+                  value={adminContactUsername}
+                  onChange={(e) => setAdminContactUsername(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-700">অ্যাডমিন ইমেইল</label>
+                <input
+                  type="email"
+                  value={adminContactEmail}
+                  onChange={(e) => setAdminContactEmail(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] font-semibold text-slate-700">Instagram আইডি</label>
+                <input
+                  type="text"
+                  value={adminContactInstagram}
+                  onChange={(e) => setAdminContactInstagram(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                />
+              </div>
+            </div>
+          </div>
           <button
             type="submit"
             className="px-4 py-2 bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
           >
-            Publish Content Updates
+            কন্টেন্ট ও নোটিশ বোর্ড প্রকাশ করুন
           </button>
         </form>
       </div>
@@ -1052,13 +1138,13 @@ export function RootAdminDashboardPage() {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="font-display text-lg font-bold text-slate-950">
-              Booking Categories Manager (বাংলা ও English — Admin Control)
+              বুকিং ক্যাটাগরি ম্যানেজার (অ্যাডমিন কন্ট্রোল)
             </h2>
             <p className="text-xs text-slate-500">
-              Add or remove booking categories shown to customers in Booking Checkout & Explore filters (18+ peaceful social companionship only).
+              কাস্টমার বুকিং ও সার্চ ফিল্টারের জন্য বাংলা ও ইংরেজি ক্যাটাগরি যুক্ত বা বাদ দিন (শুধুমাত্র ১৮+ শান্তিপূর্ণ ও আইনসম্মত সামাজিক সঙ্গী সেবা)।
             </p>
           </div>
-          <span className="text-xs font-mono text-blue-700">{categoriesList.length} categories live</span>
+          <span className="text-xs font-mono text-blue-700">{categoriesList.length} টি ক্যাটাগরি চালু</span>
         </div>
 
         <form onSubmit={handleAddAdminCategory} className="flex flex-col sm:flex-row gap-2.5">
@@ -1073,7 +1159,7 @@ export function RootAdminDashboardPage() {
             type="submit"
             className="px-4 py-2 bg-slate-950 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
           >
-            Add Category
+            ক্যাটাগরি যোগ করুন
           </button>
         </form>
 
@@ -1088,7 +1174,7 @@ export function RootAdminDashboardPage() {
                 type="button"
                 onClick={() => handleRemoveAdminCategory(cat)}
                 className="text-red-600 hover:text-red-800 font-bold cursor-pointer"
-                title="Remove category"
+                title="ক্যাটাগরি মুছুন"
               >
                 ×
               </button>
@@ -1164,7 +1250,7 @@ export function AdminManagementPage() {
     setNewUsername(uname);
     setNewPassword(pw);
     if (!newName.trim()) {
-      setNewName(`Admin ${hex.slice(0, 4).toUpperCase()}`);
+      setNewName(`অ্যাডমিন ${hex.slice(0, 4).toUpperCase()}`);
     }
   };
 
@@ -1180,7 +1266,7 @@ export function AdminManagementPage() {
       }>('/api/admin/accounts', {
         method: 'POST',
         body: JSON.stringify({
-          fullName: newName || 'LOGEASI Administrator',
+          fullName: newName || 'LOGEASI অ্যাডমিনিস্ট্রেটর',
           username: useServerRandom ? '' : newUsername,
           email: newEmail,
           phone: newPhone,
@@ -1203,7 +1289,7 @@ export function AdminManagementPage() {
       setNewEmail('');
       setNewPhone('');
       setNewPassword('');
-      setNotice(`Administrator ${res.adminId} created.`);
+      setNotice(`অ্যাডমিনিস্ট্রেটর ${res.adminId} সফলভাবে তৈরি হয়েছে।`);
       loadData();
     } catch (err: any) {
       setNotice(err.message);
@@ -1246,7 +1332,7 @@ export function AdminManagementPage() {
         body: JSON.stringify({ permissions: updated }),
       });
       loadData();
-      setNotice(`Permissions updated for ${roleDef.label}.`);
+      setNotice(`${roleDef.label}-এর ক্ষমতা আপডেট করা হয়েছে।`);
     } catch (err: any) {
       setNotice(err.message);
     }
@@ -1299,7 +1385,7 @@ export function AdminManagementPage() {
           password: res.generatedPassword,
         });
       }
-      setNotice(`Administrator ${editingAdmin.adminId} account & powers updated.`);
+      setNotice(`অ্যাডমিনিস্ট্রেটর ${editingAdmin.adminId}-এর অ্যাকাউন্ট ও ক্ষমতা আপডেট হয়েছে।`);
       setEditingAdmin(null);
       loadData();
     } catch (err: any) {
@@ -1308,7 +1394,7 @@ export function AdminManagementPage() {
   };
 
   return (
-    <AdminShell activeTab="management" title="Admin Management & RBAC">
+    <AdminShell activeTab="management" title="অ্যাডমিন ম্যানেজমেন্ট ও RBAC ক্ষমতা">
       {notice && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-medium text-blue-900">
           {notice}
@@ -1319,7 +1405,7 @@ export function AdminManagementPage() {
         <div className="p-4 bg-slate-950 text-white border border-blue-500 rounded-xl space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs font-mono text-blue-300 font-semibold">
-              ONE-TIME ADMIN CREDENTIALS ({issuedCredentials.adminId}) — SAVE NOW
+              এককালীন অ্যাডমিন লগইন তথ্য ({issuedCredentials.adminId}) — এখনই সংরক্ষণ করুন
             </p>
             <button
               type="button"
@@ -1327,20 +1413,20 @@ export function AdminManagementPage() {
                 navigator.clipboard?.writeText(
                   `Username: ${issuedCredentials.username}\nPassword: ${issuedCredentials.password}`
                 );
-                setNotice('Copied admin username & password to clipboard.');
+                setNotice('অ্যাডমিন ইউজারনেম ও পাসওয়ার্ড ক্লিপবোর্ডে কপি করা হয়েছে।');
               }}
               className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 rounded text-[11px] font-semibold inline-flex items-center gap-1 cursor-pointer"
             >
-              <Copy className="w-3 h-3" /> Copy Credentials
+              <Copy className="w-3 h-3" /> লগইন তথ্য কপি করুন
             </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs font-mono bg-slate-900 p-3 rounded-lg border border-slate-800">
             <div>
-              <span className="text-slate-400">Username: </span>
+              <span className="text-slate-400">ইউজারনেম: </span>
               <span className="text-white font-bold">{issuedCredentials.username}</span>
             </div>
             <div>
-              <span className="text-slate-400">Password: </span>
+              <span className="text-slate-400">পাসওয়ার্ড: </span>
               <span className="text-emerald-300 font-bold">{issuedCredentials.password}</span>
             </div>
           </div>
@@ -1350,21 +1436,21 @@ export function AdminManagementPage() {
       {/* Create Additional Admin */}
       <form onSubmit={(e) => createAdmin(e, false)} className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="font-display text-base font-bold text-slate-950">Create Additional Administrator</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">নতুন অ্যাডমিনিস্ট্রেটর তৈরি করুন</h2>
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
               onClick={generateClientCredentials}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-900 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
             >
-              <Shuffle className="w-3.5 h-3.5" /> Fill Random Username & Password
+              <Shuffle className="w-3.5 h-3.5" /> র‍্যান্ডম ইউজারনেম ও পাসওয়ার্ড বসান
             </button>
             <button
               type="button"
               onClick={(e) => createAdmin(e, true)}
               className="px-3 py-1.5 bg-slate-950 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
             >
-              <Sparkles className="w-3.5 h-3.5 text-blue-400" /> Instant Random Admin
+              <Sparkles className="w-3.5 h-3.5 text-blue-400" /> তাৎক্ষণিক র‍্যান্ডম অ্যাডমিন
             </button>
           </div>
         </div>
@@ -1374,35 +1460,35 @@ export function AdminManagementPage() {
             type="text"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
-            placeholder="Full Name"
+            placeholder="পূর্ণ নাম"
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs"
           />
           <input
             type="text"
             value={newUsername}
             onChange={(e) => setNewUsername(e.target.value)}
-            placeholder="Admin Username (e.g. adm_8f2a1b)"
+            placeholder="অ্যাডমিন ইউজারনেম (যেমন: adm_8f2a1b)"
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
           />
           <input
             type="email"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
-            placeholder="Google / Admin Email (optional)"
+            placeholder="Google / অ্যাডমিন ইমেইল (ঐচ্ছিক)"
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs"
           />
           <input
             type="tel"
             value={newPhone}
             onChange={(e) => setNewPhone(e.target.value)}
-            placeholder="Phone (+880..., optional)"
+            placeholder="ফোন (+880..., ঐচ্ছিক)"
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
           />
           <input
             type="text"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
-            placeholder="Initial Password (min 8 chars)"
+            placeholder="প্রাথমিক পাসওয়ার্ড (কমপক্ষে ৮ অক্ষর)"
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs font-mono"
           />
           <select
@@ -1410,33 +1496,33 @@ export function AdminManagementPage() {
             onChange={(e) => setNewRole(e.target.value as UserRole)}
             className="border border-slate-200 rounded-lg px-3 py-2 text-xs bg-white"
           >
-            <option value="super_admin">Super Admin / Administrator</option>
-            <option value="finance_admin">Finance Admin</option>
-            <option value="support_admin">Customer Support Admin</option>
-            <option value="verification_admin">Verification Admin</option>
-            <option value="content_manager">Content Manager</option>
+            <option value="super_admin">সুপার অ্যাডমিন / অ্যাডমিনিস্ট্রেটর</option>
+            <option value="finance_admin">ফিন্যান্স অ্যাডমিন</option>
+            <option value="support_admin">কাস্টমার সাপোর্ট অ্যাডমিন</option>
+            <option value="verification_admin">ভেরিফিকেশন অ্যাডমিন</option>
+            <option value="content_manager">কন্টেন্ট ম্যানেজার</option>
           </select>
         </div>
         <button
           type="submit"
           className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg cursor-pointer"
         >
-          Provision Admin Account
+          অ্যাডমিন অ্যাকাউন্ট তৈরি করুন
         </button>
       </form>
 
       {/* Admin Roster */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <h2 className="font-display text-base font-bold text-slate-950">Administrator Accounts ({accounts.length})</h2>
+        <h2 className="font-display text-base font-bold text-slate-950">অ্যাডমিনিস্ট্রেটর অ্যাকাউন্টস ({accounts.length})</h2>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Admin ID</th>
-                <th className="py-2 px-3">Name, Username & Contact</th>
-                <th className="py-2 px-3">Role</th>
-                <th className="py-2 px-3">Protection</th>
-                <th className="py-2 pl-3 text-right">Actions</th>
+                <th className="py-2 pr-3">অ্যাডমিন আইডি</th>
+                <th className="py-2 px-3">নাম, ইউজারনেম ও যোগাযোগ</th>
+                <th className="py-2 px-3">রোল</th>
+                <th className="py-2 px-3">সুরক্ষা / অবস্থা</th>
+                <th className="py-2 pl-3 text-right">অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1452,21 +1538,21 @@ export function AdminManagementPage() {
                   <td className="py-2.5 px-3 capitalize">
                     {a.role.replace(/_/g, ' ')}
                     {Array.isArray(a.customPermissions) && (
-                      <span className="ml-1.5 text-[10px] font-mono text-blue-700">(Custom Powers)</span>
+                      <span className="ml-1.5 text-[10px] font-mono text-blue-700">(কাস্টম ক্ষমতা)</span>
                     )}
                   </td>
                   <td className="py-2.5 px-3">
                     {a.isRootOwner ? (
                       <span className="inline-flex items-center gap-1 font-semibold text-blue-700">
-                        <Lock className="w-3.5 h-3.5" /> Protected Root Owner
+                        <Lock className="w-3.5 h-3.5" /> সুরক্ষিত রুট মালিক
                       </span>
                     ) : (
-                      <span className="capitalize text-slate-600">{a.status}</span>
+                      <span className="text-slate-600">{a.status === 'suspended' ? 'সাসপেন্ডেড' : 'সক্রিয়'}</span>
                     )}
                   </td>
                   <td className="py-2.5 pl-3 text-right space-x-2">
                     {a.isRootOwner ? (
-                      <span className="text-[11px] font-mono text-slate-400">IMMUTABLE</span>
+                      <span className="text-[11px] font-mono text-slate-400">অপরিবর্তনীয়</span>
                     ) : (
                       <>
                         <button
@@ -1474,21 +1560,21 @@ export function AdminManagementPage() {
                           onClick={() => openAdminEditor(a)}
                           className="px-2.5 py-1 bg-slate-900 text-white rounded font-semibold cursor-pointer"
                         >
-                          Edit / Powers
+                          সম্পাদনা / ক্ষমতা
                         </button>
                         <button
                           type="button"
                           onClick={() => toggleAdminStatus(a)}
                           className="px-2.5 py-1 border border-slate-300 rounded font-semibold cursor-pointer"
                         >
-                          {a.status === 'suspended' ? 'Reinstate' : 'Suspend'}
+                          {a.status === 'suspended' ? 'পুনর্বহাল করুন' : 'সাসপেন্ড করুন'}
                         </button>
                         <button
                           type="button"
                           onClick={() => deleteAdmin(a.uid)}
                           className="px-2.5 py-1 border border-red-200 text-red-700 rounded font-semibold cursor-pointer"
                         >
-                          Remove
+                          সরান
                         </button>
                       </>
                     )}
@@ -1509,10 +1595,10 @@ export function AdminManagementPage() {
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
             <div>
               <p className="text-[11px] font-mono text-blue-700 font-semibold">
-                MODIFY ADMIN ACCOUNT & INDIVIDUAL POWERS ({editingAdmin.adminId})
+                অ্যাডমিন অ্যাকাউন্ট ও ব্যক্তিগত ক্ষমতা পরিবর্তন ({editingAdmin.adminId})
               </p>
               <h3 className="font-display text-lg font-bold text-slate-950">
-                Editing: {editingAdmin.fullName}
+                সম্পাদনা চলছে: {editingAdmin.fullName}
               </h3>
             </div>
             <div className="flex items-center gap-2">
@@ -1521,21 +1607,21 @@ export function AdminManagementPage() {
                 onClick={(e) => saveAdminEdits(e, true)}
                 className="px-3 py-1.5 bg-slate-950 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
               >
-                <Shuffle className="w-3.5 h-3.5" /> Rotate Random Password
+                <Shuffle className="w-3.5 h-3.5" /> নতুন র‍্যান্ডম পাসওয়ার্ড দিন
               </button>
               <button
                 type="button"
                 onClick={() => setEditingAdmin(null)}
                 className="px-3 py-1.5 border border-slate-300 bg-white rounded-lg text-xs font-semibold cursor-pointer"
               >
-                Cancel
+                বাতিল
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3 text-xs">
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Full Name</label>
+              <label className="font-semibold text-slate-700">পূর্ণ নাম</label>
               <input
                 required
                 type="text"
@@ -1545,7 +1631,7 @@ export function AdminManagementPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Username</label>
+              <label className="font-semibold text-slate-700">ইউজারনেম</label>
               <input
                 type="text"
                 value={editUsername}
@@ -1554,7 +1640,7 @@ export function AdminManagementPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Admin Email</label>
+              <label className="font-semibold text-slate-700">অ্যাডমিন ইমেইল</label>
               <input
                 type="email"
                 value={editEmail}
@@ -1563,7 +1649,7 @@ export function AdminManagementPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Phone</label>
+              <label className="font-semibold text-slate-700">ফোন</label>
               <input
                 type="tel"
                 value={editPhone}
@@ -1572,7 +1658,7 @@ export function AdminManagementPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Role</label>
+              <label className="font-semibold text-slate-700">রোল</label>
               <select
                 value={editRole}
                 onChange={(e) => {
@@ -1585,22 +1671,22 @@ export function AdminManagementPage() {
                 }}
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2"
               >
-                <option value="super_admin">Super Admin / Administrator</option>
-                <option value="finance_admin">Finance Admin</option>
-                <option value="support_admin">Customer Support Admin</option>
-                <option value="verification_admin">Verification Admin</option>
-                <option value="content_manager">Content Manager</option>
+                <option value="super_admin">সুপার অ্যাডমিন / অ্যাডমিনিস্ট্রেটর</option>
+                <option value="finance_admin">ফিন্যান্স অ্যাডমিন</option>
+                <option value="support_admin">কাস্টমার সাপোর্ট অ্যাডমিন</option>
+                <option value="verification_admin">ভেরিফিকেশন অ্যাডমিন</option>
+                <option value="content_manager">কন্টেন্ট ম্যানেজার</option>
               </select>
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Status</label>
+              <label className="font-semibold text-slate-700">অবস্থা</label>
               <select
                 value={editStatus}
                 onChange={(e) => setEditStatus(e.target.value as 'active' | 'suspended')}
                 className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2"
               >
-                <option value="active">Active</option>
-                <option value="suspended">Suspended</option>
+                <option value="active">সক্রিয় (Active)</option>
+                <option value="suspended">সাসপেন্ডেড (Suspended)</option>
               </select>
             </div>
           </div>
@@ -1609,10 +1695,10 @@ export function AdminManagementPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-xs font-bold text-slate-900">
-                  Individual Admin Powers ({useCustomPerms ? 'Custom Override Active' : 'Using Role Defaults'})
+                  ব্যক্তিগত অ্যাডমিন ক্ষমতা ({useCustomPerms ? 'কাস্টম ওভাররাইড চালু' : 'রোলের ডিফল্ট ক্ষমতা'})
                 </p>
                 <p className="text-[11px] text-slate-500">
-                  Toggle specific powers for this administrator account independently of their base role.
+                  মূল রোলের বাইরে এই অ্যাডমিনের জন্য নির্দিষ্ট ক্ষমতা আলাদাভাবে চালু বা বন্ধ করুন।
                 </p>
               </div>
               <button
@@ -1624,7 +1710,7 @@ export function AdminManagementPage() {
                 }}
                 className="px-2.5 py-1 border border-slate-300 rounded text-[11px] font-semibold cursor-pointer"
               >
-                Reset to Role Defaults
+                রোলের ডিফল্টে রিসেট করুন
               </button>
             </div>
 
@@ -1647,7 +1733,7 @@ export function AdminManagementPage() {
                       checked={editPerms.includes(p.key)}
                       onChange={() => toggleEditAdminPerm(p.key)}
                     />
-                    <span className="truncate">{p.key.replace(/_/g, ' ')}</span>
+                    <span className="truncate">{p.description || p.key.replace(/_/g, ' ')}</span>
                   </label>
                 );
               })}
@@ -1658,7 +1744,7 @@ export function AdminManagementPage() {
             type="submit"
             className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg cursor-pointer"
           >
-            Save Admin Changes & Powers
+            অ্যাডমিন পরিবর্তন ও ক্ষমতা সংরক্ষণ করুন
           </button>
         </form>
       )}
@@ -1667,10 +1753,10 @@ export function AdminManagementPage() {
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
-            <Key className="w-4 h-4 text-blue-700" /> RBAC Role Permission Matrix
+            <Key className="w-4 h-4 text-blue-700" /> RBAC রোল পারমিশন ম্যাট্রিক্স
           </h2>
           <span className="text-xs text-slate-500">
-            {user?.isRootOwner ? 'Root Super Admin can customize non-root role permissions' : 'Read-only view'}
+            {user?.isRootOwner ? 'রুট সুপার অ্যাডমিন নন-রুট রোলের ক্ষমতা কাস্টমাইজ করতে পারবেন' : 'শুধুমাত্র দেখার অনুমতি'}
           </span>
         </div>
 
@@ -1689,7 +1775,7 @@ export function AdminManagementPage() {
                         checked={r.permissions.includes(p.key)}
                         onChange={() => toggleRolePermission(r, p.key)}
                       />
-                      <span className="truncate">{p.key.replace(/_/g, ' ')}</span>
+                      <span className="truncate">{p.description || p.key.replace(/_/g, ' ')}</span>
                     </label>
                   ))}
                 </div>
@@ -1721,7 +1807,35 @@ export function FinanceDashboardPage() {
   const [nagadPersonal, setNagadPersonal] = useState(
     platformPublic.nagadPersonalNumber || '01877pokpok'
   );
+  const [customPaymentLabel, setCustomPaymentLabel] = useState(
+    platformPublic.customPaymentLabel || '৩. অ্যাডমিন পার্সোনাল রকেট / কাস্টম সেন্ড মানি'
+  );
+  const [customPaymentNumber, setCustomPaymentNumber] = useState(
+    platformPublic.customPaymentNumber || '01700-000000'
+  );
+  const [customPaymentInstructions, setCustomPaymentInstructions] = useState(
+    platformPublic.customPaymentInstructions ||
+      'বুকিং নিশ্চিত করতে মোট টাকার ৫০% অ্যাডমিন পার্সোনাল নম্বরে সেন্ড মানি করে TrxID জমা দিন।'
+  );
+  const [bensonPaymentLabel, setBensonPaymentLabel] = useState(
+    platformPublic.bensonPaymentLabel || '৪. বেনসন সিগারেট পেমেন্ট (১,০০০৳ = ৩ প্যাকেট)'
+  );
+  const [bensonBaseBdt, setBensonBaseBdt] = useState(platformPublic.bensonBaseBdt ?? 1000);
+  const [bensonPacketsPerBase, setBensonPacketsPerBase] = useState(
+    platformPublic.bensonPacketsPerBase ?? 3
+  );
+  const [bensonItemName, setBensonItemName] = useState(
+    platformPublic.bensonItemName || 'প্যাকেট বেনসন সিগারেট'
+  );
+  const [bensonContactNumber, setBensonContactNumber] = useState(
+    platformPublic.bensonContactNumber || platformPublic.bkashPersonalNumber || '01700-000000'
+  );
+  const [bensonPaymentInstructions, setBensonPaymentInstructions] = useState(
+    platformPublic.bensonPaymentInstructions ||
+      'প্রতি ১,০০০ টাকা সমান ৩ প্যাকেট বেনসন সিগারেট। নির্ধারিত প্যাকেট হস্তান্তর করে ডেলিভারি রেফারেন্স/ফোন নম্বর লিখে জমা দিন।'
+  );
   const [notice, setNotice] = useState('');
+  const [proofPreviewPayment, setProofPreviewPayment] = useState<PaymentRecord | null>(null);
 
   const loadFinance = async () => {
     try {
@@ -1745,6 +1859,15 @@ export function FinanceDashboardPage() {
   useEffect(() => {
     if (platformPublic.bkashPersonalNumber) setBkashPersonal(platformPublic.bkashPersonalNumber);
     if (platformPublic.nagadPersonalNumber) setNagadPersonal(platformPublic.nagadPersonalNumber);
+    if (platformPublic.customPaymentLabel) setCustomPaymentLabel(platformPublic.customPaymentLabel);
+    if (platformPublic.customPaymentNumber) setCustomPaymentNumber(platformPublic.customPaymentNumber);
+    if (platformPublic.customPaymentInstructions) setCustomPaymentInstructions(platformPublic.customPaymentInstructions);
+    if (platformPublic.bensonPaymentLabel) setBensonPaymentLabel(platformPublic.bensonPaymentLabel);
+    if (platformPublic.bensonBaseBdt) setBensonBaseBdt(platformPublic.bensonBaseBdt);
+    if (platformPublic.bensonPacketsPerBase) setBensonPacketsPerBase(platformPublic.bensonPacketsPerBase);
+    if (platformPublic.bensonItemName) setBensonItemName(platformPublic.bensonItemName);
+    if (platformPublic.bensonContactNumber) setBensonContactNumber(platformPublic.bensonContactNumber);
+    if (platformPublic.bensonPaymentInstructions) setBensonPaymentInstructions(platformPublic.bensonPaymentInstructions);
   }, [platformPublic]);
 
   const exportCsv = async () => {
@@ -1763,7 +1886,7 @@ export function FinanceDashboardPage() {
       method: 'POST',
       body: JSON.stringify({ status }),
     });
-    setNotice(`Refund ${id} marked ${status}.`);
+    setNotice(`রিফান্ড ${id} — ${status === 'processed' ? 'সম্পন্ন (Processed)' : 'প্রত্যাখ্যাত (Rejected)'} হিসেবে চিহ্নিত হয়েছে।`);
     loadFinance();
   };
 
@@ -1772,7 +1895,11 @@ export function FinanceDashboardPage() {
       method: 'POST',
       body: JSON.stringify({ status }),
     });
-    setNotice(`Payout ${id} marked ${status}.`);
+    setNotice(
+      `পেআউট ${id} — ${
+        status === 'paid' ? 'পরিশোধিত (Paid)' : status === 'approved' ? 'অনুমোদিত' : 'প্রত্যাখ্যাত'
+      } হিসেবে চিহ্নিত হয়েছে।`
+    );
     loadFinance();
   };
 
@@ -1783,7 +1910,11 @@ export function FinanceDashboardPage() {
         method: 'POST',
         body: JSON.stringify({ decision }),
       });
-      setNotice(`Personal payment ${id} ${decision === 'approve' ? 'verified & settled' : 'rejected'}.`);
+      setNotice(
+        `পার্সোনাল পেমেন্ট ${id} ${
+          decision === 'approve' ? 'যাচাই ও নিশ্চিত করা হয়েছে' : 'প্রত্যাখ্যান করা হয়েছে'
+        }।`
+      );
       loadFinance();
     } catch (err: any) {
       setNotice(err.message);
@@ -1799,10 +1930,19 @@ export function FinanceDashboardPage() {
         body: JSON.stringify({
           bkashPersonalNumber: bkashPersonal,
           nagadPersonalNumber: nagadPersonal,
+          customPaymentLabel,
+          customPaymentNumber,
+          customPaymentInstructions,
+          bensonPaymentLabel,
+          bensonBaseBdt: Number(bensonBaseBdt),
+          bensonPacketsPerBase: Number(bensonPacketsPerBase),
+          bensonItemName,
+          bensonContactNumber,
+          bensonPaymentInstructions,
         }),
       });
       await refreshPublicPlatform();
-      setNotice('Personal bKash & Personal Nagad receiving numbers saved.');
+      setNotice('বিকাশ, নগদ, কাস্টম পার্সোনাল ও বেনসন সিগারেট পেমেন্ট অপশন সংরক্ষিত হয়েছে।');
     } catch (err: any) {
       setNotice(err.message);
     }
@@ -1825,7 +1965,7 @@ export function FinanceDashboardPage() {
         }),
       });
       await refreshPublicPlatform();
-      setNotice('Platform financial configuration saved.');
+      setNotice('প্ল্যাটফর্মের আর্থিক নীতিমালা সংরক্ষিত হয়েছে।');
     } catch (err: any) {
       setNotice(err.message);
     }
@@ -1834,24 +1974,26 @@ export function FinanceDashboardPage() {
   const pendingPersonal = payments.filter((p) => p.status === 'pending_manual_verification');
 
   return (
-    <AdminShell activeTab="finance" title="Finance, Reconciliation & Payouts">
+    <AdminShell activeTab="finance" title="ফিন্যান্স, রিকনসিলিয়েশন ও পেআউট">
       {notice && (
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-medium text-blue-900">
           {notice}
         </div>
       )}
 
-      {/* Personal 1. bKash & 2. Nagad Receiving Numbers */}
+      {/* Personal 1. bKash, 2. Nagad & 3. Admin Custom Personal Receiving Numbers */}
       <form onSubmit={savePersonalNumbers} className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-display text-base font-bold text-slate-950">
-            Personal Payment Options (1. bKash Personal · 2. Nagad Personal)
+            পার্সোনাল ও কাস্টম পেমেন্ট অপশন (৫০% অ্যাডভান্স চেকআউটে বাধ্যতামূলক)
           </h2>
-          <span className="text-xs font-mono text-blue-700">Displayed on Checkout Page</span>
+          <span className="text-xs font-mono text-blue-700">চেকআউট পেজে প্রদর্শিত হয়</span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
           <div className="space-y-1">
-            <label className="font-semibold text-slate-700">1. bKash Personal Number</label>
+            <label className="font-semibold text-slate-700 inline-flex items-center gap-2">
+              <PaymentGatewayLogo gateway="bkash" size="xs" /> ১. বিকাশ পার্সোনাল নম্বর
+            </label>
             <input
               required
               type="text"
@@ -1861,7 +2003,9 @@ export function FinanceDashboardPage() {
             />
           </div>
           <div className="space-y-1">
-            <label className="font-semibold text-slate-700">2. Nagad Personal Number</label>
+            <label className="font-semibold text-slate-700 inline-flex items-center gap-2">
+              <PaymentGatewayLogo gateway="nagad" size="xs" /> ২. নগদ পার্সোনাল নম্বর
+            </label>
             <input
               required
               type="text"
@@ -1870,22 +2014,121 @@ export function FinanceDashboardPage() {
               className="w-full border border-slate-200 rounded-lg px-3 py-2 font-mono"
             />
           </div>
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-700 inline-flex items-center gap-2">
+              <PaymentGatewayLogo gateway="custom" size="xs" /> ৩. কাস্টম পার্সোনাল অপশনের নাম
+            </label>
+            <input
+              type="text"
+              value={customPaymentLabel}
+              onChange={(e) => setCustomPaymentLabel(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="font-semibold text-slate-700">কাস্টম পার্সোনাল নম্বর / অ্যাকাউন্ট</label>
+            <input
+              type="text"
+              value={customPaymentNumber}
+              onChange={(e) => setCustomPaymentNumber(e.target.value)}
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 font-mono"
+            />
+          </div>
         </div>
+        <div className="space-y-1 text-xs">
+          <label className="font-semibold text-slate-700">কাস্টম পেমেন্ট নির্দেশনা</label>
+          <input
+            type="text"
+            value={customPaymentInstructions}
+            onChange={(e) => setCustomPaymentInstructions(e.target.value)}
+            className="w-full border border-slate-200 rounded-lg px-3 py-2"
+          />
+        </div>
+
+        <div className="pt-3 border-t border-slate-100 space-y-3 text-xs">
+          <div className="flex items-center gap-3">
+            <PaymentGatewayLogo gateway="benson" size="md" />
+            <p className="font-bold text-amber-900">
+              ৪. বেনসন সিগারেট / পণ্য বিনিময় পেমেন্ট রেট (যেমন: ১,০০০ টাকা = ৩ প্যাকেট বেনসন সিগারেট)
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">অপশনের নাম</label>
+              <input
+                type="text"
+                value={bensonPaymentLabel}
+                onChange={(e) => setBensonPaymentLabel(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">ভিত্তি টাকা (BDT)</label>
+              <input
+                type="number"
+                min={100}
+                value={bensonBaseBdt}
+                onChange={(e) => setBensonBaseBdt(Number(e.target.value))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">সমপরিমাণ সংখ্যা (প্যাকেট)</label>
+              <input
+                type="number"
+                min={1}
+                value={bensonPacketsPerBase}
+                onChange={(e) => setBensonPacketsPerBase(Number(e.target.value))}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">হস্তান্তর নম্বর</label>
+              <input
+                type="text"
+                value={bensonContactNumber}
+                onChange={(e) => setBensonContactNumber(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">পণ্যের বিবরণ (যেমন: প্যাকেট বেনসন সিগারেট)</label>
+              <input
+                type="text"
+                value={bensonItemName}
+                onChange={(e) => setBensonItemName(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">হস্তান্তর নির্দেশনা</label>
+              <input
+                type="text"
+                value={bensonPaymentInstructions}
+                onChange={(e) => setBensonPaymentInstructions(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2"
+              />
+            </div>
+          </div>
+        </div>
+
         <button
           type="submit"
           className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg cursor-pointer"
         >
-          Update Personal Payment Numbers
+          সব পার্সোনাল ও সিগারেট পেমেন্ট অপশন আপডেট করুন
         </button>
       </form>
 
-      {/* Pending Personal bKash/Nagad TrxID Verification Queue */}
+      {/* Pending Personal bKash/Nagad/Custom/Benson TrxID Verification Queue */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
         <h2 className="font-display text-base font-bold text-slate-950">
-          Personal bKash / Nagad TrxID Verification Queue ({pendingPersonal.length})
+          পেন্ডিং পার্সোনাল, কাস্টম ও বেনসন সিগারেট পেমেন্ট যাচাই ({pendingPersonal.length})
         </h2>
         {pendingPersonal.length === 0 ? (
-          <p className="text-xs text-slate-500">No pending manual personal MFS TrxID submissions.</p>
+          <p className="text-xs text-slate-500">যাচাইয়ের অপেক্ষায় কোনো পার্সোনাল MFS / সিগারেট পেমেন্ট নেই।</p>
         ) : (
           <div className="space-y-2.5">
             {pendingPersonal.map((p) => (
@@ -1893,28 +2136,56 @@ export function FinanceDashboardPage() {
                 key={p.id}
                 className="p-3.5 border border-blue-200 bg-blue-50/60 rounded-lg flex flex-wrap items-center justify-between gap-3 text-xs"
               >
-                <div className="space-y-0.5">
-                  <p className="font-mono font-bold text-slate-950">
-                    {p.gateway.toUpperCase()} PERSONAL · TrxID: {p.senderReferenceTrxId}
-                  </p>
-                  <p className="text-slate-600 font-mono">
-                    {p.transactionId} · Booking {p.bookingCode || p.bookingId} · {formatBdt(p.amountBdt)}
-                  </p>
+                <div className="flex items-start gap-3">
+                  <PaymentGatewayLogo gateway={p.gateway} size="sm" />
+                  <div className="space-y-1">
+                    <p className="font-mono font-bold text-slate-950">
+                      {p.gateway.toUpperCase()} {p.gateway === 'benson' ? 'ITEM' : 'PERSONAL'} · {p.paymentStage === 'advance_50' ? '৫০% অ্যাডভান্স' : 'পেমেন্ট'} · Ref/TrxID: {p.senderReferenceTrxId}
+                    </p>
+                    <p className="text-slate-600 font-mono tabular-nums">
+                      {p.transactionId} · বুকিং {p.bookingCode || p.bookingId} · {formatBdt(p.amountBdt)}
+                      {p.equivalentItemLabel ? ` (${p.equivalentItemLabel})` : ''}
+                    </p>
+                    {p.bensonDeliveryMode && (
+                      <p className="text-amber-900 font-semibold">
+                        হস্তান্তরের ধরন:{' '}
+                        {p.bensonDeliveryMode === 'in_person'
+                          ? 'দেখা করে হাতে হাতে'
+                          : 'রাইডার / কুরিয়ারে সেন্ড'}
+                      </p>
+                    )}
+                    {p.proofPhotoUrl && (
+                      <div className="pt-1 flex items-center gap-3">
+                        <img
+                          src={p.proofPhotoUrl}
+                          alt="কেনা সিগারেটের প্রমাণ"
+                          className="w-16 h-16 rounded-lg border border-slate-300 object-cover bg-white shrink-0"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setProofPreviewPayment(p)}
+                          className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 text-slate-800 font-semibold rounded-lg inline-flex items-center gap-1 whitespace-nowrap shrink-0 cursor-pointer"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-amber-700" /> সিগারেটের ছবি দেখুন
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => verifyPersonalTrx(p.id, 'approve')}
-                    className="px-3 py-1.5 bg-blue-700 text-white font-semibold rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 bg-blue-700 text-white font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    Approve & Confirm Paid
+                    অনুমোদন ও পরিশোধিত নিশ্চিত করুন
                   </button>
                   <button
                     type="button"
                     onClick={() => verifyPersonalTrx(p.id, 'reject')}
-                    className="px-3 py-1.5 border border-red-200 text-red-700 font-semibold rounded-lg cursor-pointer"
+                    className="px-3 py-1.5 border border-red-200 text-red-700 font-semibold rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
                   >
-                    Reject
+                    বাতিল করুন
                   </button>
                 </div>
               </div>
@@ -1923,15 +2194,78 @@ export function FinanceDashboardPage() {
         )}
       </div>
 
+      {proofPreviewPayment && proofPreviewPayment.proofPhotoUrl && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="bg-white border border-slate-200 rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl">
+            <div className="bg-slate-950 text-white px-5 py-3.5 flex items-center justify-between gap-2">
+              <div className="text-xs">
+                <p className="font-mono text-amber-300">{proofPreviewPayment.transactionId}</p>
+                <p className="font-bold text-sm">
+                  কেনা বেনসন সিগারেটের প্রমাণ ({proofPreviewPayment.equivalentItemLabel || formatBdt(proofPreviewPayment.amountBdt)})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setProofPreviewPayment(null)}
+                aria-label="বন্ধ করুন"
+                className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-xs">
+              <p className="text-slate-700">
+                পদ্ধতি:{' '}
+                <strong>
+                  {proofPreviewPayment.bensonDeliveryMode === 'in_person'
+                    ? 'দেখা করে হাতে হাতে'
+                    : 'রাইডার / কুরিয়ারে সেন্ড'}
+                </strong>{' '}
+                · রেফারেন্স: <span className="font-mono font-semibold">{proofPreviewPayment.senderReferenceTrxId}</span>
+              </p>
+              <img
+                src={proofPreviewPayment.proofPhotoUrl}
+                alt="বেনসন সিগারেটের প্রমাণ ছবি"
+                className="w-full max-h-96 object-contain rounded-xl border border-slate-200 bg-slate-50"
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = proofPreviewPayment.id;
+                    setProofPreviewPayment(null);
+                    verifyPersonalTrx(id, 'approve');
+                  }}
+                  className="px-4 py-2 bg-blue-700 text-white font-semibold rounded-lg cursor-pointer"
+                >
+                  অনুমোদন করুন
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProofPreviewPayment(null)}
+                  className="px-4 py-2 border border-slate-300 text-slate-700 font-semibold rounded-lg cursor-pointer"
+                >
+                  বন্ধ করুন
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Root-only Fee & Payment Gateway Mode Config */}
       {user?.isRootOwner && (
         <form onSubmit={saveSettings} className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
           <h2 className="font-display text-base font-bold text-slate-950">
-            Platform Fee & Payment Gateway Mode (Root Exclusive)
+            প্ল্যাটফর্ম ফি ও পেমেন্ট গেটওয়ে মোড (শুধুমাত্র রুট মালিক)
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Service Fee (%)</label>
+              <label className="font-semibold text-slate-700">সার্ভিস ফি (%)</label>
               <input
                 type="number"
                 min={0}
@@ -1942,18 +2276,18 @@ export function FinanceDashboardPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Gateway Mode</label>
+              <label className="font-semibold text-slate-700">গেটওয়ে মোড</label>
               <select
                 value={paymentMode}
                 onChange={(e) => setPaymentMode(e.target.value as 'sandbox' | 'live')}
                 className="w-full border border-slate-200 rounded-lg px-3 py-2 bg-white"
               >
-                <option value="sandbox">Sandbox / Test Mode</option>
-                <option value="live">Live Merchant Mode</option>
+                <option value="sandbox">স্যান্ডবক্স / টেস্ট মোড</option>
+                <option value="live">লাইভ মার্চেন্ট মোড</option>
               </select>
             </div>
             <div className="space-y-1">
-              <label className="font-semibold text-slate-700">Max Cash (BDT)</label>
+              <label className="font-semibold text-slate-700">সর্বোচ্চ ক্যাশ (BDT)</label>
               <input
                 type="number"
                 value={maxCash}
@@ -1968,7 +2302,7 @@ export function FinanceDashboardPage() {
                   checked={merchantApproved}
                   onChange={(e) => setMerchantApproved(e.target.checked)}
                 />
-                <span>Merchant Approved</span>
+                <span>মার্চেন্ট অনুমোদিত</span>
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -1976,7 +2310,7 @@ export function FinanceDashboardPage() {
                   checked={cashEnabled}
                   onChange={(e) => setCashEnabled(e.target.checked)}
                 />
-                <span>Cash Permitted</span>
+                <span>ক্যাশ পেমেন্ট চালু</span>
               </label>
             </div>
           </div>
@@ -1984,7 +2318,7 @@ export function FinanceDashboardPage() {
             type="submit"
             className="px-4 py-2 bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
           >
-            Save Financial Policy
+            আর্থিক নীতিমালা সংরক্ষণ করুন
           </button>
         </form>
       )}
@@ -1992,13 +2326,13 @@ export function FinanceDashboardPage() {
       {/* Transactions Reconciliation + CSV Download */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-base font-bold text-slate-950">Payment Reconciliation Ledger</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">পেমেন্ট রিকনসিলিয়েশন লেজার</h2>
           <button
             type="button"
             onClick={exportCsv}
             className="px-3.5 py-2 bg-blue-700 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
           >
-            <Download className="w-3.5 h-3.5" /> Download CSV Report
+            <Download className="w-3.5 h-3.5" /> CSV রিপোর্ট ডাউনলোড করুন
           </button>
         </div>
 
@@ -2006,22 +2340,27 @@ export function FinanceDashboardPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Transaction ID</th>
-                <th className="py-2 px-3">Gateway</th>
-                <th className="py-2 px-3 text-right">Amount</th>
-                <th className="py-2 px-3 text-right">Fee</th>
-                <th className="py-2 px-3">Webhook</th>
-                <th className="py-2 pl-3">Status</th>
+                <th className="py-2 pr-3">ট্রানজেকশন আইডি</th>
+                <th className="py-2 px-3">গেটওয়ে</th>
+                <th className="py-2 px-3 text-right">পরিমাণ</th>
+                <th className="py-2 px-3 text-right">ফি</th>
+                <th className="py-2 px-3">ওয়েবহুক</th>
+                <th className="py-2 pl-3">অবস্থা</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {payments.map((p) => (
                 <tr key={p.id}>
                   <td className="py-2.5 pr-3 font-mono text-slate-900">{p.transactionId}</td>
-                  <td className="py-2.5 px-3 uppercase">{p.gateway} ({p.mode})</td>
+                  <td className="py-2.5 px-3 uppercase">
+                    <span className="inline-flex items-center gap-2">
+                      <PaymentGatewayLogo gateway={p.gateway} size="xs" />
+                      <span>{p.gateway} ({p.mode})</span>
+                    </span>
+                  </td>
                   <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatBdt(p.amountBdt)}</td>
                   <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatBdt(p.platformFeeBdt)}</td>
-                  <td className="py-2.5 px-3">{p.webhookVerified ? 'HMAC Verified' : 'Pending'}</td>
+                  <td className="py-2.5 px-3">{p.webhookVerified ? 'HMAC যাচাইকৃত' : 'অপেক্ষমান'}</td>
                   <td className="py-2.5 pl-3 capitalize">{p.status.replace('_', ' ')}</td>
                 </tr>
               ))}
@@ -2033,17 +2372,20 @@ export function FinanceDashboardPage() {
       {/* Payout Approvals & Refund Queue */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
-          <h2 className="font-display text-base font-bold text-slate-950">Companion Payout Requests</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">সঙ্গীর পেআউট অনুরোধসমূহ</h2>
           {payouts.length === 0 ? (
-            <p className="text-xs text-slate-500">No payout requests.</p>
+            <p className="text-xs text-slate-500">কোনো পেআউট অনুরোধ নেই।</p>
           ) : (
             payouts.map((p) => (
               <div key={p.id} className="p-3 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
-                <div>
-                  <p className="font-semibold text-slate-900">{p.companionName || p.companionUid}</p>
-                  <p className="font-mono text-slate-600 uppercase">
-                    {p.method} {p.accountMasked} · {formatBdt(p.amountBdt)} · {p.status}
-                  </p>
+                <div className="flex items-center gap-2.5">
+                  <PaymentGatewayLogo gateway={p.method} size="sm" />
+                  <div>
+                    <p className="font-semibold text-slate-900">{p.companionName || p.companionUid}</p>
+                    <p className="font-mono text-slate-600 uppercase">
+                      {p.method} {p.accountMasked} · {formatBdt(p.amountBdt)} · {p.status}
+                    </p>
+                  </div>
                 </div>
                 {p.status === 'pending' && (
                   <div className="flex gap-1.5">
@@ -2052,14 +2394,14 @@ export function FinanceDashboardPage() {
                       onClick={() => processPayout(p.id, 'paid')}
                       className="px-2.5 py-1 bg-blue-700 text-white rounded font-semibold cursor-pointer"
                     >
-                      Mark Paid
+                      পরিশোধিত দেখান
                     </button>
                     <button
                       type="button"
                       onClick={() => processPayout(p.id, 'rejected')}
                       className="px-2.5 py-1 border border-red-200 text-red-700 rounded font-semibold cursor-pointer"
                     >
-                      Reject
+                      বাতিল
                     </button>
                   </div>
                 )}
@@ -2069,9 +2411,9 @@ export function FinanceDashboardPage() {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-3">
-          <h2 className="font-display text-base font-bold text-slate-950">Refund Requests</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">রিফান্ড অনুরোধসমূহ</h2>
           {refunds.length === 0 ? (
-            <p className="text-xs text-slate-500">No refund requests.</p>
+            <p className="text-xs text-slate-500">কোনো রিফান্ড অনুরোধ নেই।</p>
           ) : (
             refunds.map((r) => (
               <div key={r.id} className="p-3 border border-slate-200 rounded-lg flex items-center justify-between text-xs">
@@ -2086,14 +2428,14 @@ export function FinanceDashboardPage() {
                       onClick={() => processRefund(r.id, 'processed')}
                       className="px-2.5 py-1 bg-blue-700 text-white rounded font-semibold cursor-pointer"
                     >
-                      Approve Refund
+                      রিফান্ড অনুমোদন
                     </button>
                     <button
                       type="button"
                       onClick={() => processRefund(r.id, 'rejected')}
                       className="px-2.5 py-1 border border-red-200 text-red-700 rounded font-semibold cursor-pointer"
                     >
-                      Decline
+                      প্রত্যাখ্যান
                     </button>
                   </div>
                 )}
@@ -2139,24 +2481,24 @@ export function SecurityDashboardPage() {
   const filtered = logs.filter((l) => severityFilter === 'all' || l.severity === severityFilter);
 
   return (
-    <AdminShell activeTab="security" title="Security Center & Audit Logs">
+    <AdminShell activeTab="security" title="নিরাপত্তা কেন্দ্র ও অডিট লগ">
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <p className="text-xs text-slate-500">Password & Credential Security</p>
+          <p className="text-xs text-slate-500">পাসওয়ার্ড ও ক্রেডেনশিয়াল সুরক্ষা</p>
           <p className="text-sm font-bold text-slate-950 mt-1 flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Bcrypt (12 rounds) + AES-256-GCM
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Bcrypt (১২ রাউন্ড) + AES-256-GCM
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <p className="text-xs text-slate-500">Webhook & Session Integrity</p>
+          <p className="text-xs text-slate-500">ওয়েবহুক ও সেশন অখণ্ডতা</p>
           <p className="text-sm font-bold text-slate-950 mt-1 flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> HMAC-SHA256 + HttpOnly Cookies
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> HMAC-SHA256 + HttpOnly কুকি
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500">Disaster Recovery Backup</p>
-            <p className="text-xs text-slate-700 mt-0.5">Full JSON snapshot export</p>
+            <p className="text-xs text-slate-500">ডিজাস্টার রিকভারি ব্যাকআপ</p>
+            <p className="text-xs text-slate-700 mt-0.5">সম্পূর্ণ JSON স্ন্যাপশট এক্সপোর্ট</p>
           </div>
           {user?.isRootOwner && (
             <button
@@ -2164,7 +2506,7 @@ export function SecurityDashboardPage() {
               onClick={exportBackup}
               className="px-3 py-2 bg-slate-950 text-white text-xs font-semibold rounded-lg cursor-pointer"
             >
-              Export Backup
+              ব্যাকআপ এক্সপোর্ট করুন
             </button>
           )}
         </div>
@@ -2172,18 +2514,23 @@ export function SecurityDashboardPage() {
 
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-base font-bold text-slate-950">Immutable Audit Logs</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">অপরিবর্তনীয় অডিট লগসমূহ</h2>
           <div className="flex gap-1 p-1 bg-slate-100 rounded-lg text-xs">
-            {['all', 'info', 'warning', 'critical'].map((sev) => (
+            {[
+              { id: 'all', label: 'সব' },
+              { id: 'info', label: 'তথ্য (Info)' },
+              { id: 'warning', label: 'সতর্কতা (Warning)' },
+              { id: 'critical', label: 'গুরুত্বপূর্ণ (Critical)' },
+            ].map((sev) => (
               <button
-                key={sev}
+                key={sev.id}
                 type="button"
-                onClick={() => setSeverityFilter(sev)}
-                className={`px-2.5 py-1 rounded capitalize cursor-pointer ${
-                  severityFilter === sev ? 'bg-white font-semibold text-slate-950 shadow-sm' : 'text-slate-600'
+                onClick={() => setSeverityFilter(sev.id)}
+                className={`px-2.5 py-1 rounded cursor-pointer ${
+                  severityFilter === sev.id ? 'bg-white font-semibold text-slate-950 shadow-sm' : 'text-slate-600'
                 }`}
               >
-                {sev}
+                {sev.label}
               </button>
             ))}
           </div>
@@ -2193,25 +2540,25 @@ export function SecurityDashboardPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">Timestamp</th>
-                <th className="py-2 px-3">Action</th>
-                <th className="py-2 px-3">Actor</th>
-                <th className="py-2 px-3">Severity</th>
-                <th className="py-2 pl-3">Details</th>
+                <th className="py-2 pr-3">সময়</th>
+                <th className="py-2 px-3">অ্যাকশন</th>
+                <th className="py-2 px-3">অ্যাক্টর</th>
+                <th className="py-2 px-3">গুরুত্ব</th>
+                <th className="py-2 pl-3">বিস্তারিত</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filtered.map((l) => (
                 <tr key={l.id}>
                   <td className="py-2.5 pr-3 font-mono text-slate-500 whitespace-nowrap">
-                    {new Date(l.createdAt).toLocaleString('en-BD')}
+                    {new Date(l.createdAt).toLocaleString('bn-BD')}
                   </td>
                   <td className="py-2.5 px-3 font-mono font-semibold text-slate-900">{l.action}</td>
                   <td className="py-2.5 px-3 text-slate-700">{l.actorRole}</td>
                   <td className={`py-2.5 px-3 font-semibold uppercase ${
                     l.severity === 'critical' ? 'text-red-700' : l.severity === 'warning' ? 'text-amber-700' : 'text-slate-600'
                   }`}>
-                    {l.severity}
+                    {l.severity === 'critical' ? 'গুরুত্বপূর্ণ' : l.severity === 'warning' ? 'সতর্কতা' : 'তথ্য'}
                   </td>
                   <td className="py-2.5 pl-3 text-slate-700">{l.details}</td>
                 </tr>

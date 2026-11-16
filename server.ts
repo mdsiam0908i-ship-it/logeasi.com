@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { authRouter } from './src/server/routes-auth.ts';
 import { marketplaceRouter } from './src/server/routes-marketplace.ts';
 import { paymentsAdminRouter } from './src/server/routes-payments-admin.ts';
+import { adminOwnerRecoveryRouter } from './src/server/admin-owner-recovery.ts';
 import { ensurePlatformSeeded } from './src/server/seed.ts';
 
 dotenv.config();
@@ -35,6 +36,7 @@ async function startServer() {
   app.use('/api', authRouter);
   app.use('/api', marketplaceRouter);
   app.use('/api', paymentsAdminRouter);
+  app.use('/api', adminOwnerRecoveryRouter);
   app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'API endpoint not found.' });
   });

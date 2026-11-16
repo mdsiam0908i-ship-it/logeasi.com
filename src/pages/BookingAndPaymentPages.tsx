@@ -1,12 +1,19 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Briefcase,
   Camera,
   CheckCircle2,
   Clock,
   CreditCard,
   Gift,
+  LocateFixed,
   Lock,
+  Mail,
+  MapPin,
+  MessageCircle,
   MessageSquare,
+  Navigation,
+  Phone,
   ShieldCheck,
   Smartphone,
   Truck,
@@ -15,6 +22,7 @@ import {
 import { useAuth } from '../context/AuthContext.tsx';
 import { BookingReviewCard } from '../components/BookingReviewCard.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
+import { PathaoLiveMap } from '../components/PathaoLiveMap.tsx';
 import { PaymentGatewayLogo } from '../components/PaymentGatewayLogo.tsx';
 import { getLocationsForDivision } from '../data/bangladeshRegions.ts';
 import {
@@ -24,6 +32,7 @@ import {
 } from '../data/bookingCategories.ts';
 import { apiRequest, formatBdt } from '../lib/api.ts';
 import type {
+  BookingLocationPoint,
   BookingMessage,
   BookingRecord,
   CompanionProfile,
@@ -50,6 +59,8 @@ export function BookingCheckoutPage({ companionUid }: { companionUid: string }) 
   const [notes, setNotes] = useState('');
   const [useCredits, setUseCredits] = useState(false);
   const [creditsInput, setCreditsInput] = useState(0);
+  const [customerLiveLoc, setCustomerLiveLoc] = useState<BookingLocationPoint | null>(null);
+  const [pickedMeetupPin, setPickedMeetupPin] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -150,6 +161,19 @@ export function BookingCheckoutPage({ companionUid }: { companionUid: string }) 
           notes,
           proposedTotalBdt: totalBdt,
           creditsToApplyBdt: appliedCredits,
+          ...(customerLiveLoc ? { customerLiveLocation: customerLiveLoc } : {}),
+          ...(pickedMeetupPin
+            ? {
+                meetupLocation: {
+                  lat: pickedMeetupPin.lat,
+                  lng: pickedMeetupPin.lng,
+                  addressLabel: venueName || city,
+                  updatedAt: new Date().toISOString(),
+                  updatedBy: 'customer',
+                  consentGiven: true,
+                },
+              }
+            : {}),
         }),
       });
       await refreshSession();
@@ -294,6 +318,42 @@ export function BookingCheckoutPage({ companionUid }: { companionUid: string }) 
             />
           </div>
 
+          <div className="space-y-2 pt-1">
+            <p className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-rose-600" />
+              Google Maps লাইভ লোকেশন / মিটআপ পিন (পাঠাও-স্টাইল)
+            </p>
+            <p className="text-[11px] text-slate-500">
+              ম্যাপে ক্লিক করে মিটআপ স্থান পিন করুন অথবা আপনার বর্তমান লাইভ GPS লোকেশন শেয়ার করুন। ৫০% পেমেন্ট করার পর অ্যাডমিন এই লোকেশন দেখে আপনাকে সব বুঝিয়ে দেবেন।
+            </p>
+            <PathaoLiveMap
+              title="পিকআপ ও মিটআপ Google Maps লোকেশন নির্বাচন"
+              city={city}
+              division={companion.division}
+              venueName={venueName}
+              customerLiveLocation={customerLiveLoc}
+              draftPin={pickedMeetupPin}
+              pickMode="customer_pickup"
+              showLiveControls
+              heightPx={250}
+              onPickLocation={(coords) => setPickedMeetupPin(coords)}
+              onShareLiveLocation={async ({ lat, lng, accuracyMeters }) => {
+                setCustomerLiveLoc({
+                  lat,
+                  lng,
+                  addressLabel: venueName || `${city} লাইভ অবস্থান`,
+                  accuracyMeters,
+                  updatedAt: new Date().toISOString(),
+                  updatedBy: 'customer',
+                  consentGiven: true,
+                });
+              }}
+              onRevokeLiveLocation={async () => {
+                setCustomerLiveLoc(null);
+              }}
+            />
+          </div>
+
           {availableCredits > 0 && (
             <div className="p-4 bg-blue-50/70 border border-blue-200 rounded-xl space-y-2.5">
               <div className="flex items-center justify-between gap-2">
@@ -401,6 +461,8 @@ export function PaymentPage({ bookingId }: { bookingId: string }) {
   const [bensonDeliveryMode, setBensonDeliveryMode] = useState<'in_person' | 'send_delivery'>('in_person');
   const [bensonProofPhotoUrl, setBensonProofPhotoUrl] = useState('');
   const [verificationResult, setVerificationResult] = useState<string>('');
+  const [locBusy, setLocBusy] = useState(false);
+  const [locNotice, setLocNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -983,19 +1045,118 @@ export function PaymentPage({ bookingId }: { bookingId: string }) {
           </div>
         )}
       </div>
+
+      {/* Pathao-style 50% Advance -> Admin Live Map Coordination Card */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-rose-600" />
+              ৫০% পেমেন্ট পরবর্তী Google Maps ও অ্যাডমিন সমন্বয় (পাঠাও-স্টাইল)
+            </h2>
+            <p className="text-xs text-slate-600 leading-relaxed">
+              ৫০% অ্যাডভান্স পেমেন্ট জমা দিলে সাথে সাথে অ্যাডমিনের কাছে নোটিফিকেশন চলে যায়। আপনার লাইভ লোকেশন শেয়ার থাকলে অ্যাডমিন চূড়ান্ত Google Maps মিটআপ লোকেশন পাঠিয়ে সবকিছু বিস্তারিত বুঝিয়ে দেবেন।
+            </p>
+          </div>
+          {booking.customerLiveLocation ? (
+            <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-md">
+              লাইভ লোকেশন সংযুক্ত
+            </span>
+          ) : (
+            <span className="text-[11px] font-mono font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-md">
+              লাইভ লোকেশন এখনো দেওয়া হয়নি
+            </span>
+          )}
+        </div>
+
+        {locNotice && (
+          <p className="text-xs font-medium text-blue-900 bg-blue-50 border border-blue-200 rounded-lg p-2.5">
+            {locNotice}
+          </p>
+        )}
+
+        <PathaoLiveMap
+          title="বুকিংয়ের লাইভ Google Maps অবস্থান"
+          city={booking.city}
+          division={booking.division}
+          venueName={booking.venueName}
+          customerLiveLocation={booking.customerLiveLocation}
+          meetupLocation={booking.meetupLocation}
+          adminDispatchedLocation={booking.adminDispatchedLocation}
+          adminInstruction={booking.adminLocationMessage}
+          locationStatus={booking.adminLocationStatus}
+          showLiveControls={!locBusy}
+          heightPx={240}
+          onShareLiveLocation={async ({ lat, lng, accuracyMeters }) => {
+            setLocBusy(true);
+            setLocNotice('');
+            try {
+              await apiRequest(`/api/bookings/${booking.id}/location`, {
+                method: 'POST',
+                body: JSON.stringify({
+                  lat,
+                  lng,
+                  accuracyMeters,
+                  addressLabel: `${booking.venueName}, ${booking.city}`,
+                  consent: true,
+                }),
+              });
+              setLocNotice('আপনার লাইভ Google Maps লোকেশন অ্যাডমিনের কাছে পাঠানো হয়েছে।');
+              await loadBooking();
+            } finally {
+              setLocBusy(false);
+            }
+          }}
+          onRevokeLiveLocation={async () => {
+            setLocBusy(true);
+            try {
+              await apiRequest(`/api/bookings/${booking.id}/location`, {
+                method: 'POST',
+                body: JSON.stringify({ consent: false }),
+              });
+              setLocNotice('লাইভ লোকেশন শেয়ারিং বন্ধ করা হয়েছে।');
+              await loadBooking();
+            } finally {
+              setLocBusy(false);
+            }
+          }}
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate(`/bookings?bookingId=${booking.id}`)}
+            className="px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg cursor-pointer inline-flex items-center gap-1.5"
+          >
+            <LocateFixed className="w-3.5 h-3.5" /> বুকিং ম্যাপ ও চ্যাট পেজে যান
+          </button>
+        </div>
+      </div>
     </main>
   );
 }
 
-// Page 11: Booking History + Live Thread + Cancellation + Review
+// Page 11: Booking History + Live Thread + Pathao Google Maps + Cancellation + Review
 export function BookingHistoryPage() {
-  const { user, navigate } = useAuth();
+  const { user, currentPath, navigate } = useAuth();
   const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [myReviews, setMyReviews] = useState<ReviewRecord[]>([]);
-  const [activeId, setActiveId] = useState<string>('');
+  const [activeId, setActiveId] = useState<string>(() => {
+    const q = currentPath.includes('?') ? currentPath.split('?')[1] : '';
+    return new URLSearchParams(q).get('bookingId') || '';
+  });
   const [messages, setMessages] = useState<BookingMessage[]>([]);
   const [msgText, setMsgText] = useState('');
   const [notice, setNotice] = useState('');
+  const [milestoneBusy, setMilestoneBusy] = useState('');
+
+  useEffect(() => {
+    const q = currentPath.includes('?') ? currentPath.split('?')[1] : '';
+    const requestedBookingId = new URLSearchParams(q).get('bookingId');
+    if (requestedBookingId) {
+      setActiveId(requestedBookingId);
+    }
+  }, [currentPath]);
 
   const loadBookings = async () => {
     if (!user) return;
@@ -1003,10 +1164,15 @@ export function BookingHistoryPage() {
       apiRequest<{ bookings: BookingRecord[] }>('/api/bookings'),
       apiRequest<{ reviews: ReviewRecord[] }>('/api/reviews/mine').catch(() => ({ reviews: [] })),
     ]);
-    setBookings(bRes.bookings || []);
+    const list = bRes.bookings || [];
+    setBookings(list);
     setMyReviews(rRes.reviews || []);
-    if (!activeId && bRes.bookings?.length) {
-      setActiveId(bRes.bookings[0].id);
+    const q = currentPath.includes('?') ? currentPath.split('?')[1] : '';
+    const urlId = new URLSearchParams(q).get('bookingId');
+    if (urlId && list.some((b) => b.id === urlId)) {
+      setActiveId(urlId);
+    } else if (!activeId && list.length) {
+      setActiveId(list[0].id);
     }
   };
 
@@ -1025,7 +1191,13 @@ export function BookingHistoryPage() {
   }, [user]);
 
   useEffect(() => {
-    if (activeId) loadMessages(activeId);
+    if (!activeId) return;
+    loadMessages(activeId);
+    const interval = window.setInterval(() => {
+      loadBookings();
+      loadMessages(activeId);
+    }, 6000);
+    return () => window.clearInterval(interval);
   }, [activeId]);
 
   if (!user) {
@@ -1082,6 +1254,33 @@ export function BookingHistoryPage() {
     } catch (err: any) {
       setNotice(err.message);
     }
+  };
+
+  const triggerMilestone = async (id: string, milestone: 'departed' | 'arrived') => {
+    setNotice('');
+    setMilestoneBusy(`${id}_${milestone}`);
+    try {
+      await apiRequest(`/api/bookings/${id}/milestone`, {
+        method: 'POST',
+        body: JSON.stringify({ milestone }),
+      });
+      await Promise.all([loadBookings(), loadMessages(id)]);
+      setNotice(
+        milestone === 'departed'
+          ? 'আপনার যাত্রা শুরুর তথ্য কাস্টমারকে জানানো হয়েছে।'
+          : 'লোকেশনে সফলভাবে পৌঁছানোর তথ্য কাস্টমারকে জানানো হয়েছে!'
+      );
+    } catch (err: any) {
+      setNotice(err.message || 'স্ট্যাটাস আপডেট করা যায়নি।');
+    } finally {
+      setMilestoneBusy('');
+    }
+  };
+
+  const toWaDigits = (raw?: string) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return digits.startsWith('01') ? `88${digits}` : digits;
   };
 
   return (
@@ -1208,14 +1407,257 @@ export function BookingHistoryPage() {
                   </button>
                 </div>
 
-                {/* Participant Chat */}
+                {/* 3-Step LOGEASI Service Assurance Tracker */}
+                {(() => {
+                  const isActiveDeal = !['requested', 'declined', 'cancelled'].includes(activeBooking.status);
+                  const step1Done =
+                    activeBooking.advanceStatus === 'paid' ||
+                    activeBooking.paymentStatus === 'paid' ||
+                    ['confirmed_paid', 'in_progress', 'completed'].includes(activeBooking.status);
+                  const step2Departed = Boolean(activeBooking.companionDepartedAt);
+                  const step2Arrived =
+                    Boolean(activeBooking.companionArrivedAt) ||
+                    activeBooking.companionMilestoneStatus === 'arrived' ||
+                    activeBooking.status === 'completed';
+                  const step3Ready =
+                    isActiveDeal &&
+                    (step1Done ||
+                      ['accepted_awaiting_agreement', 'price_agreed_awaiting_payment', 'payment_pending'].includes(
+                        activeBooking.status
+                      ));
+                  const counterpartyName =
+                    user.uid === activeBooking.customerUid
+                      ? activeBooking.companionName
+                      : activeBooking.customerName;
+                  const counterpartyWa =
+                    user.uid === activeBooking.customerUid
+                      ? activeBooking.companionWhatsapp
+                      : activeBooking.customerWhatsapp;
+                  const counterpartyEmail =
+                    user.uid === activeBooking.customerUid
+                      ? activeBooking.companionEmail
+                      : activeBooking.customerEmail;
+                  const waDigits = toWaDigits(counterpartyWa);
+
+                  return (
+                    <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4 text-emerald-700" /> LOGEASI সার্ভিস নিশ্চয়তা ট্র্যাকার (৩ ধাপ)
+                        </h3>
+                        <span className="text-[11px] font-mono text-slate-500">
+                          পেমেন্ট অ্যাডমিনের কাছে সুরক্ষিত
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
+                        <div
+                          className={`p-3 rounded-lg border ${
+                            step1Done
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                              : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <p className="font-bold flex items-center gap-1.5">
+                            <CheckCircle2 className={`w-3.5 h-3.5 ${step1Done ? 'text-emerald-700' : 'text-slate-400'}`} />
+                            ১. সফল বুকিং ও পেমেন্ট
+                          </p>
+                          <p className="text-[11px] mt-1">
+                            {step1Done
+                              ? 'বুকিং ও পেমেন্ট অ্যাডমিন রিসিভ করেছেন।'
+                              : activeBooking.advanceStatus === 'pending_verification'
+                                ? 'অ্যাডমিন আপনার পেমেন্ট যাচাই করছেন।'
+                                : 'পেমেন্ট সম্পন্ন হলে অ্যাডমিন নিশ্চিত করবেন।'}
+                          </p>
+                        </div>
+
+                        <div
+                          className={`p-3 rounded-lg border ${
+                            step2Arrived
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                              : step2Departed
+                                ? 'bg-blue-50 border-blue-200 text-blue-950'
+                                : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <p className="font-bold flex items-center gap-1.5">
+                            <Navigation
+                              className={`w-3.5 h-3.5 ${
+                                step2Arrived
+                                  ? 'text-emerald-700'
+                                  : step2Departed
+                                    ? 'text-blue-700'
+                                    : 'text-slate-400'
+                              }`}
+                            />
+                            ২. সফলভাবে লোকেশনে আসা
+                          </p>
+                          <p className="text-[11px] mt-1">
+                            {step2Arrived
+                              ? 'সঙ্গী সফলভাবে নির্ধারিত লোকেশনে পৌঁছেছেন।'
+                              : step2Departed
+                                ? 'সঙ্গী ব্যাগ গুছিয়ে লোকেশনের উদ্দেশ্যে রওনা দিয়েছেন।'
+                                : 'বুকিং ও লোকেশন কনফার্ম হলে সঙ্গী যাত্রা শুরু করবেন।'}
+                          </p>
+                        </div>
+
+                        <div
+                          className={`p-3 rounded-lg border ${
+                            step3Ready
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                              : 'bg-white border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <p className="font-bold flex items-center gap-1.5">
+                            <MessageCircle className={`w-3.5 h-3.5 ${step3Ready ? 'text-emerald-700' : 'text-slate-400'}`} />
+                            ৩. সফল কনভারসেশন
+                          </p>
+                          <p className="text-[11px] mt-1">
+                            {step3Ready
+                              ? 'LOGEASI চ্যাট, WhatsApp বা Email-এ সরাসরি কথা বলুন।'
+                              : 'বুকিং কনফার্ম হলে পারস্পরিক যোগাযোগ চালু হবে।'}
+                          </p>
+                        </div>
+                      </div>
+
+                      {user.uid === activeBooking.companionUid &&
+                        !['declined', 'cancelled', 'completed'].includes(activeBooking.status) && (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <button
+                              type="button"
+                              disabled={step2Departed || milestoneBusy === `${activeBooking.id}_departed`}
+                              onClick={() => triggerMilestone(activeBooking.id, 'departed')}
+                              className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <Briefcase className="w-3.5 h-3.5" />
+                              {step2Departed ? 'যাত্রা শুরু সম্পন্ন' : 'ব্যাগ গুছিয়ে রওনা দিয়েছি'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={step2Arrived || milestoneBusy === `${activeBooking.id}_arrived`}
+                              onClick={() => triggerMilestone(activeBooking.id, 'arrived')}
+                              className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <MapPin className="w-3.5 h-3.5" />
+                              {step2Arrived ? 'লোকেশনে আগমন সম্পন্ন' : 'সফলভাবে লোকেশনে পৌঁছেছি'}
+                            </button>
+                          </div>
+                        )}
+
+                      {isActiveDeal && (waDigits || counterpartyEmail) && (
+                        <div className="pt-2 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <span className="text-slate-600 font-medium">
+                            {counterpartyName}-এর সাথে সরাসরি যোগাযোগ (WhatsApp / Email / LOGEASI):
+                          </span>
+                          <div className="flex flex-wrap gap-2">
+                            {waDigits && (
+                              <a
+                                href={`https://wa.me/${waDigits}?text=${encodeURIComponent(
+                                  `হ্যালো ${counterpartyName}, LOGEASI.COM বুকিং ${activeBooking.bookingCode} (${activeBooking.venueName}) নিয়ে যোগাযোগ করছি।`
+                                )}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg inline-flex items-center gap-1"
+                              >
+                                <Phone className="w-3 h-3" /> WhatsApp ({counterpartyWa})
+                              </a>
+                            )}
+                            {counterpartyEmail && (
+                              <a
+                                href={`mailto:${counterpartyEmail}?subject=${encodeURIComponent(
+                                  `LOGEASI Booking ${activeBooking.bookingCode}`
+                                )}`}
+                                className="px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-semibold rounded-lg inline-flex items-center gap-1"
+                              >
+                                <Mail className="w-3 h-3" /> {counterpartyEmail}
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* Direct Customer-to-Companion Live Location Map */}
+                <PathaoLiveMap
+                  title={`সরাসরি লাইভ লোকেশন ও মিটআপ ম্যাপ — ${activeBooking.bookingCode}`}
+                  city={activeBooking.city}
+                  division={activeBooking.division}
+                  venueName={activeBooking.venueName}
+                  customerLiveLocation={activeBooking.customerLiveLocation}
+                  meetupLocation={activeBooking.meetupLocation}
+                  adminDispatchedLocation={activeBooking.adminDispatchedLocation}
+                  adminInstruction={activeBooking.adminLocationMessage}
+                  locationStatus={activeBooking.adminLocationStatus}
+                  pickMode={user.uid === activeBooking.customerUid ? 'customer_pickup' : 'view'}
+                  showLiveControls={user.uid === activeBooking.customerUid}
+                  heightPx={290}
+                  onPickLocation={
+                    user.uid === activeBooking.customerUid
+                      ? async (coords) => {
+                          await apiRequest(`/api/bookings/${activeBooking.id}/location`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              lat: coords.lat,
+                              lng: coords.lng,
+                              addressLabel: `${activeBooking.venueName}, ${activeBooking.city}`,
+                              setAsMeetup: true,
+                              consent: true,
+                            }),
+                          });
+                          setNotice('ম্যাপে নির্বাচিত আপনার লাইভ লোকেশন ও মিটআপ পিন সরাসরি সঙ্গীর সাথে শেয়ার করা হয়েছে।');
+                          await Promise.all([loadBookings(), loadMessages(activeBooking.id)]);
+                        }
+                      : undefined
+                  }
+                  onShareLiveLocation={
+                    user.uid === activeBooking.customerUid
+                      ? async ({ lat, lng, accuracyMeters }) => {
+                          await apiRequest(`/api/bookings/${activeBooking.id}/location`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              lat,
+                              lng,
+                              accuracyMeters,
+                              addressLabel: `${activeBooking.venueName}, ${activeBooking.city}`,
+                              consent: true,
+                            }),
+                          });
+                          setNotice('আপনার লাইভ Google Maps লোকেশন সরাসরি সঙ্গীর সাথে শেয়ার করা হয়েছে (অ্যাডমিন কেবল পর্যবেক্ষণ করতে পারবেন)।');
+                          await Promise.all([loadBookings(), loadMessages(activeBooking.id)]);
+                        }
+                      : undefined
+                  }
+                  onRevokeLiveLocation={
+                    user.uid === activeBooking.customerUid
+                      ? async () => {
+                          await apiRequest(`/api/bookings/${activeBooking.id}/location`, {
+                            method: 'POST',
+                            body: JSON.stringify({ consent: false }),
+                          });
+                          setNotice('লাইভ লোকেশন শেয়ারিং বন্ধ করা হয়েছে।');
+                          await loadBookings();
+                        }
+                      : undefined
+                  }
+                />
+
+                {/* Participant Direct Discussion Chat (Admin Observes Read-Only) */}
                 <div className="pt-4 border-t border-slate-100 space-y-3">
-                  <h3 className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5" /> বুকিং সমন্বয় চ্যাট
-                  </h3>
-                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 h-48 overflow-y-auto space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-700" /> কাস্টমার ও সঙ্গীর সরাসরি আলাপ-আলোচনা
+                    </h3>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      অ্যাডমিন শুধুমাত্র পর্যবেক্ষণ করবেন (কোনো হস্তক্ষেপ নেই)
+                    </span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 h-52 overflow-y-auto space-y-2">
                     {messages.length === 0 ? (
-                      <p className="text-xs text-slate-400">এখনো কোনো মেসেজ নেই। এখানে দেখা করার সময় ও পাবলিক স্থান ঠিক করুন।</p>
+                      <p className="text-xs text-slate-400">
+                        এখনো কোনো মেসেজ নেই। এখানে দেখা করার সময়, লাইভ লোকেশন ও পাবলিক স্থান নিয়ে সরাসরি আলোচনা করুন।
+                      </p>
                     ) : (
                       messages.map((m) => (
                         <div key={m.id} className="text-xs">
@@ -1230,7 +1672,7 @@ export function BookingHistoryPage() {
                       type="text"
                       value={msgText}
                       onChange={(e) => setMsgText(e.target.value)}
-                      placeholder="মেসেজ লিখুন..."
+                      placeholder="সঙ্গী / কাস্টমারের সাথে সরাসরি আলোচনা লিখুন..."
                       className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-xs"
                     />
                     <button

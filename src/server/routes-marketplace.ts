@@ -22,7 +22,13 @@ import {
   sanitizePhotoData,
   sanitizeString,
 } from './security.ts';
-import type { BookingRecord, CompanionProfile } from '../types/logeasi.ts';
+import type {
+  BookingLocationPoint,
+  BookingRecord,
+  CompanionApplicationRecord,
+  CompanionPostRecord,
+  CompanionProfile,
+} from '../types/logeasi.ts';
 import {
   BANGLADESH_DIVISIONS,
   isKnownBangladeshLocation,
@@ -109,14 +115,26 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
       blocksSnap.docs.forEach((d) => blockedSet.add(String(d.data().reportedUid)));
     }
 
-    const snap = await adminDb.collection('companion_profiles').get();
-    const allCompanions = snap.docs.map((d) => {
-      const cmp = d.data() as CompanionProfile;
-      return {
-        ...cmp,
-        division: getCompanionDivision(cmp),
-      };
+    const [snap, usersSnap] = await Promise.all([
+      adminDb.collection('companion_profiles').get(),
+      adminDb.collection('users').get(),
+    ]);
+    const suspendedUidSet = new Set<string>();
+    usersSnap.docs.forEach((d) => {
+      const u = d.data();
+      if (u.status === 'suspended' || u.status === 'deactivated') {
+        suspendedUidSet.add(String(u.uid || d.id));
+      }
     });
+    const allCompanions = snap.docs
+      .map((d) => {
+        const cmp = d.data() as CompanionProfile;
+        return {
+          ...cmp,
+          division: getCompanionDivision(cmp),
+        };
+      })
+      .filter((c) => !suspendedUidSet.has(c.uid));
 
     // Compute canonical Top 100 rank across directory
     const rankedPool = [...allCompanions].sort((a, b) => {
@@ -281,15 +299,16 @@ marketplaceRouter.get('/companions', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// Single companion profile + verified reviews
+// Single companion profile + verified reviews + companion personal posts
 marketplaceRouter.get('/companions/:uid', async (req, res) => {
   try {
     const uid = sanitizeId(req.params.uid);
     if (!uid) return res.status(400).json({ error: 'Invalid companion ID.' });
 
-    const [cmpSnap, revSnap] = await Promise.all([
+    const [cmpSnap, revSnap, postsSnap] = await Promise.all([
       adminDb.collection('companion_profiles').doc(uid).get(),
       adminDb.collection('reviews').where('companionUid', '==', uid).get(),
+      adminDb.collection('companion_posts').where('companionUid', '==', uid).get(),
     ]);
 
     if (!cmpSnap.exists) {
@@ -299,11 +318,244 @@ marketplaceRouter.get('/companions/:uid', async (req, res) => {
     const reviews = revSnap.docs
       .map((d) => d.data())
       .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    const posts = postsSnap.docs
+      .map((d) => d.data())
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
 
-    res.json({ companion: cmpSnap.data(), reviews });
+    res.json({ companion: cmpSnap.data(), reviews, posts });
   } catch (err) {
     console.error('Companion detail error:', err);
     res.status(500).json({ error: 'Unable to fetch companion profile.' });
+  }
+});
+
+// Public Companion Application Submission (Admin reviews -> approves -> creates account via WhatsApp)
+marketplaceRouter.post('/companion-applications', async (req, res) => {
+  try {
+    const fullName = sanitizeString(req.body?.fullName, 120);
+    const whatsappNumber = sanitizeString(req.body?.whatsappNumber, 40);
+    const contactEmail = sanitizeString(req.body?.contactEmail || '', 180).toLowerCase();
+    const city = sanitizeString(req.body?.city || 'Dhaka', 80);
+    const division = normalizeDivisionKey(req.body?.division) || resolveDivisionForLocation(city) || 'Dhaka';
+    const gender: 'male' | 'female' = req.body?.gender === 'female' ? 'female' : 'male';
+    const dateOfBirth = sanitizeString(req.body?.dateOfBirth || '', 20);
+    const hourlyRateBdt = Math.max(500, Math.min(50000, Number(req.body?.hourlyRateBdt || 1500)));
+    const sessionRateBdt = Math.max(1000, Math.min(150000, Number(req.body?.sessionRateBdt || 4200)));
+    const headline = sanitizeString(
+      req.body?.headline || 'সামাজিক সঙ্গী আবেদন · আড্ডা ও ভ্রমণ সহায়তা',
+      180
+    );
+    const bio = sanitizeString(req.body?.bio || '', 1200);
+    const instagramHandle = sanitizeString(req.body?.instagramHandle || '', 120);
+
+    if (!fullName || fullName.length < 2) {
+      return res.status(400).json({ error: 'আপনার পূর্ণ নাম লিখুন।' });
+    }
+    const phoneDigits = whatsappNumber.replace(/[^\d]/g, '');
+    if (phoneDigits.length < 7) {
+      return res.status(400).json({
+        error: 'সঠিক WhatsApp নম্বর দিন — অ্যাডমিন এই নম্বরে যোগাযোগ করে আপনার অ্যাকাউন্ট বুঝিয়ে দেবেন।',
+      });
+    }
+    if (!isKnownBangladeshLocation(city)) {
+      return res.status(400).json({ error: 'অনুগ্রহ করে বাংলাদেশের একটি বৈধ জেলা বা এলাকা নির্বাচন করুন।' });
+    }
+    const age = calculateAgeFromDob(dateOfBirth);
+    if (!dateOfBirth || age < 18) {
+      return res.status(403).json({
+        error: 'সঙ্গী আবেদনের জন্য অবশ্যই ১৮+ বছর বয়সী হতে হবে। সঠিক জন্ম তারিখ দিন।',
+      });
+    }
+    if (containsUnsafeViolenceTerm(headline) || containsUnsafeViolenceTerm(bio)) {
+      return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
+    }
+
+    let photoUrl = '';
+    if (req.body?.photoUrl) {
+      const cleanPhoto = sanitizePhotoData(req.body.photoUrl);
+      if (cleanPhoto === null) {
+        return res.status(400).json({ error: 'ছবির ফরম্যাট সঠিক নয় বা ফাইল সাইজ অনেক বড়।' });
+      }
+      photoUrl = cleanPhoto;
+    }
+
+    const id = `CAP_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+    const now = new Date().toISOString();
+    const application: CompanionApplicationRecord = {
+      id,
+      fullName,
+      whatsappNumber,
+      contactEmail,
+      city,
+      division,
+      gender,
+      dateOfBirth,
+      calculatedAge: age,
+      hourlyRateBdt,
+      sessionRateBdt,
+      headline,
+      bio,
+      instagramHandle,
+      photoUrl,
+      status: 'pending',
+      adminNote: '',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await adminDb.collection('companion_applications').doc(id).set(application);
+
+    // Notify all active admins about new companion application
+    const [adminsSnap, rootLockSnap] = await Promise.all([
+      adminDb.collection('admin_accounts').get(),
+      adminDb.collection('platform_settings').doc('root_lock').get(),
+    ]);
+    const adminUids = new Set<string>();
+    adminsSnap.docs.forEach((d) => {
+      if (d.data().status !== 'suspended') adminUids.add(String(d.data().uid || d.id));
+    });
+    if (rootLockSnap.data()?.rootAdminUid) {
+      adminUids.add(String(rootLockSnap.data()!.rootAdminUid));
+    }
+
+    await Promise.all([
+      ...Array.from(adminUids).map((adminUid) =>
+        createNotification({
+          userUid: adminUid,
+          type: 'companion_application_received',
+          title: `নতুন সঙ্গী আবেদন: ${fullName} (${city})`,
+          message: `WhatsApp: ${whatsappNumber} · বয়স ${age} বছর · প্রস্তাবিত রেট ৳${hourlyRateBdt}/ঘণ্টা। অনুমোদন করে WhatsApp-এ ইমেইল ও পাসওয়ার্ড বুঝিয়ে দিন।`,
+          link: '/admin/dashboard',
+        })
+      ),
+      writeAuditLog({
+        actorUid: 'public_applicant',
+        actorRole: 'applicant',
+        action: 'COMPANION_APPLICATION_SUBMITTED',
+        targetType: 'companion_application',
+        targetId: id,
+        details: `${fullName} (${whatsappNumber}, ${city}) applied to become a companion.`,
+        severity: 'info',
+      }),
+    ]);
+
+    res.status(201).json({
+      application,
+      message:
+        'আপনার সঙ্গী আবেদন অ্যাডমিনের কাছে সফলভাবে জমা হয়েছে! অ্যাডমিন আপনার তথ্য যাচাই করে WhatsApp-এ যোগাযোগের পর আপনার ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন।',
+    });
+  } catch (err) {
+    console.error('Submit companion application error:', err);
+    res.status(500).json({ error: 'আবেদন জমা দেওয়া সম্ভব হয়নি। অনুগ্রহ করে আবার চেষ্টা করুন।' });
+  }
+});
+
+// Companion personal posts feed (public read, companion create/delete)
+marketplaceRouter.get('/companions/:uid/posts', async (req, res) => {
+  try {
+    const uid = sanitizeId(req.params.uid);
+    if (!uid) return res.status(400).json({ error: 'Invalid companion ID.' });
+    const snap = await adminDb
+      .collection('companion_posts')
+      .where('companionUid', '==', uid)
+      .get();
+    const posts = snap.docs
+      .map((d) => d.data())
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json({ posts });
+  } catch (err) {
+    res.status(500).json({ error: 'সঙ্গীর পোস্ট লোড করা যায়নি।' });
+  }
+});
+
+marketplaceRouter.post(
+  '/companion/posts',
+  requireAuth,
+  requireProfileUnlocked,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const uid = req.authUser!.uid;
+      if (req.authUser!.role !== 'companion' && !isAdminRole(req.authUser!.role)) {
+        return res.status(403).json({
+          error: 'শুধুমাত্র অ্যাডমিন-অনুমোদিত সঙ্গী অ্যাকাউন্ট থেকে নিজের বিষয়ে পোস্ট প্রকাশ করা যায়।',
+        });
+      }
+
+      const cmpSnap = await adminDb.collection('companion_profiles').doc(uid).get();
+      if (!cmpSnap.exists && !isAdminRole(req.authUser!.role)) {
+        return res.status(404).json({ error: 'সঙ্গী প্রোফাইল পাওয়া যায়নি।' });
+      }
+      const cmp = cmpSnap.data() as CompanionProfile | undefined;
+
+      const title = sanitizeString(req.body?.title, 140);
+      const content = sanitizeString(req.body?.content, 1500);
+      const tag = sanitizeString(req.body?.tag || 'আমার আপডেট', 50);
+
+      if (!title || !content || content.length < 5) {
+        return res.status(400).json({ error: 'পোস্টের শিরোনাম ও বিস্তারিত লেখা দিন।' });
+      }
+      if (containsUnsafeViolenceTerm(title) || containsUnsafeViolenceTerm(content)) {
+        return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
+      }
+
+      let photoUrl = '';
+      if (req.body?.photoUrl) {
+        const cleanPhoto = sanitizePhotoData(req.body.photoUrl);
+        if (cleanPhoto === null) {
+          return res.status(400).json({ error: 'ছবির ফরম্যাট সঠিক নয় বা ফাইল সাইজ অনেক বড়।' });
+        }
+        photoUrl = cleanPhoto;
+      }
+
+      const id = `PST_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      const now = new Date().toISOString();
+      const post: CompanionPostRecord = {
+        id,
+        companionUid: uid,
+        companionName: cmp?.displayName || req.authUser!.fullName,
+        companionPhoto: cmp?.photoUrl || req.authUser!.photoUrl || '',
+        city: cmp?.city || req.authUser!.city || 'Dhaka',
+        title,
+        content,
+        ...(photoUrl ? { photoUrl } : {}),
+        tag,
+        createdAt: now,
+      };
+
+      await adminDb.collection('companion_posts').doc(id).set(post);
+      await writeAuditLog({
+        actorUid: uid,
+        actorRole: req.authUser!.role,
+        action: 'COMPANION_POST_CREATED',
+        targetType: 'companion_post',
+        targetId: id,
+        details: `Companion ${post.companionName} published post "${title}".`,
+        severity: 'info',
+      });
+
+      res.status(201).json({ post });
+    } catch (err) {
+      console.error('Create companion post error:', err);
+      res.status(500).json({ error: 'পোস্ট প্রকাশ করা যায়নি।' });
+    }
+  }
+);
+
+marketplaceRouter.delete('/companion/posts/:id', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = sanitizeId(req.params.id);
+    const ref = adminDb.collection('companion_posts').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'পোস্ট খুঁজে পাওয়া যায়নি।' });
+    const post = snap.data() as CompanionPostRecord;
+
+    if (post.companionUid !== req.authUser!.uid && !isAdminRole(req.authUser!.role)) {
+      return res.status(403).json({ error: 'শুধুমাত্র নিজের পোস্ট অথবা অ্যাডমিন মুছতে পারবেন।' });
+    }
+    await ref.delete();
+    res.json({ deleted: true, id });
+  } catch (err) {
+    res.status(500).json({ error: 'পোস্ট মুছে ফেলা যায়নি।' });
   }
 });
 
@@ -450,6 +702,14 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
           ? 'male'
           : existing?.gender || req.authUser!.gender;
 
+    // Enforce Admin-approved companion workflow: customers cannot directly upgrade themselves
+    if (req.authUser!.role === 'customer') {
+      return res.status(403).json({
+        error:
+          'সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না। অনুগ্রহ করে "সঙ্গী হোন" পেজ থেকে আবেদন জমা দিন — অ্যাডমিন যাচাই করে WhatsApp-এ যোগাযোগের পর আপনার সঙ্গী অ্যাকাউন্ট তৈরি করে দেবেন।',
+      });
+    }
+
     const payload: CompanionProfile = {
       uid,
       displayName,
@@ -482,24 +742,13 @@ marketplaceRouter.put('/companion/profile', requireAuth, async (req: Authenticat
     };
 
     await adminDb.collection('companion_profiles').doc(uid).set(payload, { merge: true });
-    if (req.authUser!.role === 'customer') {
-      await adminDb.collection('users').doc(uid).update({
-        role: 'companion',
-        fullName: displayName,
-        photoUrl,
-        profileCompleted: true,
-        profileUpdatedAt: now,
-        ...(cleanGender ? { gender: cleanGender } : {}),
-      });
-    } else {
-      await adminDb.collection('users').doc(uid).update({
-        fullName: displayName,
-        photoUrl,
-        profileCompleted: true,
-        profileUpdatedAt: now,
-        ...(cleanGender ? { gender: cleanGender } : {}),
-      });
-    }
+    await adminDb.collection('users').doc(uid).update({
+      fullName: displayName,
+      photoUrl,
+      profileCompleted: true,
+      profileUpdatedAt: now,
+      ...(cleanGender ? { gender: cleanGender } : {}),
+    });
 
     res.json({ companionProfile: payload });
   } catch (err) {
@@ -673,6 +922,34 @@ marketplaceRouter.post(
       return res.status(400).json({ error: VIOLENCE_SAFETY_MESSAGE_BN });
     }
 
+    const parseLocPoint = (
+      raw: any,
+      updatedBy: 'customer' | 'admin'
+    ): BookingLocationPoint | undefined => {
+      if (!raw || typeof raw !== 'object') return undefined;
+      const lat = Number(raw.lat);
+      const lng = Number(raw.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return undefined;
+      }
+      const accuracyMeters =
+        Number.isFinite(Number(raw.accuracyMeters)) && Number(raw.accuracyMeters) >= 0
+          ? Math.round(Number(raw.accuracyMeters))
+          : undefined;
+      return {
+        lat: Number(lat.toFixed(6)),
+        lng: Number(lng.toFixed(6)),
+        addressLabel: sanitizeString(raw.addressLabel || '', 200),
+        ...(accuracyMeters !== undefined ? { accuracyMeters } : {}),
+        updatedAt: new Date().toISOString(),
+        updatedBy,
+        consentGiven: raw.consentGiven !== false,
+      };
+    };
+
+    const customerLiveLocation = parseLocPoint(req.body?.customerLiveLocation, 'customer');
+    const meetupLocation = parseLocPoint(req.body?.meetupLocation, 'customer');
+
     const id = `BKG_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const bookingCode = `LGS-${crypto.randomInt(100000, 999999)}`;
     const now = new Date().toISOString();
@@ -708,6 +985,9 @@ marketplaceRouter.post(
       companionAgreed: false,
       paymentStatus: 'unpaid',
       notes: bookingNotes,
+      ...(customerLiveLocation ? { customerLiveLocation } : {}),
+      ...(meetupLocation ? { meetupLocation } : {}),
+      adminLocationStatus: customerLiveLocation ? 'customer_shared' : 'not_requested',
       createdAt: now,
       updatedAt: now,
     };
@@ -745,17 +1025,170 @@ marketplaceRouter.post(
   }
 });
 
+// Customer shares, updates, or revokes live GPS location directly with the Companion (Admin observes read-only)
+marketplaceRouter.post('/bookings/:id/location', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = sanitizeId(req.params.id);
+    const ref = adminDb.collection('bookings').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'বুকিং খুঁজে পাওয়া যায়নি।' });
+    const booking = snap.data() as BookingRecord;
+
+    const uid = req.authUser!.uid;
+    if (booking.customerUid !== uid) {
+      return res.status(403).json({
+        error: 'শুধুমাত্র এই বুকিংয়ের কাস্টমার সরাসরি সঙ্গীর সাথে লাইভ লোকেশন শেয়ার বা বন্ধ করতে পারবেন (অ্যাডমিন কেবল দেখতে পারবেন)।',
+      });
+    }
+
+    const now = new Date().toISOString();
+    const consent = req.body?.consent !== false;
+
+    if (!consent) {
+      await ref.update({
+        customerLiveLocation: null,
+        adminLocationStatus: 'not_requested',
+        updatedAt: now,
+      });
+      return res.json({ consentGiven: false, customerLiveLocation: null });
+    }
+
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return res.status(400).json({ error: 'সঠিক অক্ষাংশ ও দ্রাঘিমাংশ (GPS Coordinates) প্রয়োজন।' });
+    }
+
+    const addressLabel = sanitizeString(req.body?.addressLabel || `${booking.venueName}, ${booking.city}`, 200);
+    const accuracyMeters =
+      Number.isFinite(Number(req.body?.accuracyMeters)) && Number(req.body?.accuracyMeters) >= 0
+        ? Math.round(Number(req.body?.accuracyMeters))
+        : undefined;
+
+    const point: BookingLocationPoint = {
+      lat: Number(lat.toFixed(6)),
+      lng: Number(lng.toFixed(6)),
+      addressLabel,
+      ...(accuracyMeters !== undefined ? { accuracyMeters } : {}),
+      updatedAt: now,
+      updatedBy: 'customer',
+      consentGiven: true,
+    };
+
+    const nextLocStatus = 'customer_shared';
+    const updates: Record<string, any> = {
+      customerLiveLocation: point,
+      adminLocationStatus: nextLocStatus,
+      updatedAt: now,
+    };
+    if (req.body?.setAsMeetup) {
+      updates.meetupLocation = point;
+    }
+
+    await ref.update(updates);
+
+    // Log a non-spammy location-share entry inside booking chat so Companion & Admin monitor see it clearly
+    const prevUpdatedMs = booking.customerLiveLocation?.updatedAt
+      ? new Date(booking.customerLiveLocation.updatedAt).getTime()
+      : 0;
+    const isFreshShare = !prevUpdatedMs || Date.now() - prevUpdatedMs > 30_000 || Boolean(req.body?.setAsMeetup);
+
+    if (isFreshShare) {
+      const mapsUrl = `https://www.google.com/maps?q=${point.lat},${point.lng}`;
+      const sysMsgId = `MSG_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      await adminDb.collection('booking_messages').doc(sysMsgId).set({
+        id: sysMsgId,
+        bookingId: id,
+        senderUid: booking.customerUid,
+        senderName: `${booking.customerName} (লাইভ লোকেশন)`,
+        body: `📍 [কাস্টমার সঙ্গীর সাথে লাইভ লোকেশন শেয়ার করেছেন]: ${point.addressLabel} (${point.lat.toFixed(5)}, ${point.lng.toFixed(5)}) — ${mapsUrl}`,
+        createdAt: now,
+      });
+
+      // Notify Companion directly + Read-Only awareness notification to Admins
+      const [adminsSnap, rootLockSnap] = await Promise.all([
+        adminDb.collection('admin_accounts').get(),
+        adminDb.collection('platform_settings').doc('root_lock').get(),
+      ]);
+      const adminUidSet = new Set<string>();
+      adminsSnap.docs.forEach((d) => {
+        const a = d.data();
+        if (a.status !== 'suspended') adminUidSet.add(String(a.uid || d.id));
+      });
+      const rootUid = rootLockSnap.data()?.rootAdminUid;
+      if (rootUid) adminUidSet.add(String(rootUid));
+
+      await Promise.all([
+        createNotification({
+          userUid: booking.companionUid,
+          type: 'customer_live_location_shared',
+          title: `কাস্টমার লাইভ লোকেশন শেয়ার করেছেন (${booking.bookingCode})`,
+          message: `${booking.customerName} আপনার সাথে সরাসরি লাইভ Google Maps লোকেশন শেয়ার করেছেন: ${point.addressLabel}। ম্যাপ ও চ্যাটে দেখুন।`,
+          link: `/bookings?bookingId=${booking.id}`,
+        }),
+        ...Array.from(adminUidSet).map((adminUid) =>
+          createNotification({
+            userUid: adminUid,
+            type: 'customer_live_location_monitor',
+            title: `পর্যবেক্ষণ: কাস্টমার-সঙ্গী লাইভ লোকেশন (${booking.bookingCode})`,
+            message: `${booking.customerName} তাঁর সঙ্গী ${booking.companionName}-কে লাইভ লোকেশন শেয়ার করেছেন (${point.lat.toFixed(4)}, ${point.lng.toFixed(4)})। অ্যাডমিন প্যানেল থেকে শুধু পর্যবেক্ষণ করুন।`,
+            link: `/admin/dashboard?dispatchBooking=${booking.id}`,
+          })
+        ),
+      ]);
+    }
+
+    res.json({
+      consentGiven: true,
+      customerLiveLocation: point,
+      meetupLocation: updates.meetupLocation || booking.meetupLocation || null,
+      adminLocationStatus: nextLocStatus,
+    });
+  } catch (err) {
+    console.error('Update booking location error:', err);
+    res.status(500).json({ error: 'লাইভ লোকেশন সংরক্ষণ করা যায়নি।' });
+  }
+});
+
 marketplaceRouter.get('/bookings', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const uid = req.authUser!.uid;
-    const [asCustomer, asCompanion] = await Promise.all([
+    const [asCustomer, asCompanion, cmpSnap, usersSnap] = await Promise.all([
       adminDb.collection('bookings').where('customerUid', '==', uid).get(),
       adminDb.collection('bookings').where('companionUid', '==', uid).get(),
+      adminDb.collection('companion_profiles').get(),
+      adminDb.collection('users').get(),
     ]);
 
+    const cmpContactMap = new Map<string, { whatsapp?: string; email?: string }>();
+    cmpSnap.docs.forEach((d) => {
+      const c = d.data() as CompanionProfile;
+      cmpContactMap.set(c.uid, { whatsapp: c.whatsappNumber || '', email: c.contactEmail || '' });
+    });
+    const userContactMap = new Map<string, { phone?: string; email?: string }>();
+    usersSnap.docs.forEach((d) => {
+      const u = d.data();
+      userContactMap.set(String(u.uid || d.id), { phone: u.phone || '', email: u.email || '' });
+    });
+
     const map = new Map<string, BookingRecord>();
-    asCustomer.docs.forEach((d) => map.set(d.id, d.data() as BookingRecord));
-    asCompanion.docs.forEach((d) => map.set(d.id, d.data() as BookingRecord));
+    const hydrate = (b: BookingRecord): BookingRecord => {
+      const canSeeContacts = !['requested', 'declined', 'cancelled'].includes(b.status);
+      if (!canSeeContacts) return b;
+      const cmpC = cmpContactMap.get(b.companionUid);
+      const cmpU = userContactMap.get(b.companionUid);
+      const custU = userContactMap.get(b.customerUid);
+      return {
+        ...b,
+        companionWhatsapp: b.companionWhatsapp || cmpC?.whatsapp || cmpU?.phone || '',
+        companionEmail: b.companionEmail || cmpC?.email || cmpU?.email || '',
+        customerWhatsapp: b.customerWhatsapp || custU?.phone || '',
+        customerEmail: b.customerEmail || custU?.email || '',
+      };
+    };
+
+    asCustomer.docs.forEach((d) => map.set(d.id, hydrate(d.data() as BookingRecord)));
+    asCompanion.docs.forEach((d) => map.set(d.id, hydrate(d.data() as BookingRecord)));
 
     const bookings = Array.from(map.values()).sort((a, b) =>
       b.createdAt.localeCompare(a.createdAt)
@@ -780,6 +1213,27 @@ marketplaceRouter.get('/bookings/:id', requireAuth, async (req: AuthenticatedReq
       !isAdminRole(req.authUser!.role)
     ) {
       return res.status(403).json({ error: 'Forbidden.' });
+    }
+
+    const canSeeContacts = !['requested', 'declined', 'cancelled'].includes(booking.status);
+    if (canSeeContacts) {
+      const [cmpSnap, cmpUserSnap, custUserSnap] = await Promise.all([
+        adminDb.collection('companion_profiles').doc(booking.companionUid).get(),
+        adminDb.collection('users').doc(booking.companionUid).get(),
+        adminDb.collection('users').doc(booking.customerUid).get(),
+      ]);
+      const cmpD = cmpSnap.data() || {};
+      const cmpU = cmpUserSnap.data() || {};
+      const custU = custUserSnap.data() || {};
+      return res.json({
+        booking: {
+          ...booking,
+          companionWhatsapp: booking.companionWhatsapp || cmpD.whatsappNumber || cmpU.phone || '',
+          companionEmail: booking.companionEmail || cmpD.contactEmail || cmpU.email || '',
+          customerWhatsapp: booking.customerWhatsapp || custU.phone || '',
+          customerEmail: booking.customerEmail || custU.email || '',
+        },
+      });
     }
     res.json({ booking });
   } catch (err) {
@@ -846,6 +1300,7 @@ marketplaceRouter.post('/bookings/:id/respond', requireAuth, async (req: Authent
       companionNetBdt,
       customerAgreed,
       companionAgreed,
+      companionMilestoneStatus: 'accepted',
       status: nextStatus,
       updatedAt: now,
     });
@@ -864,6 +1319,87 @@ marketplaceRouter.post('/bookings/:id/respond', requireAuth, async (req: Authent
   } catch (err) {
     console.error('Booking respond error:', err);
     res.status(500).json({ error: 'Failed to update booking response.' });
+  }
+});
+
+// Companion Journey Milestones ("বুকিং দেখে রওনা দিয়েছি" -> "সফলভাবে লোকেশনে পৌঁছেছি")
+marketplaceRouter.post('/bookings/:id/milestone', requireAuth, async (req: AuthenticatedRequest, res) => {
+  try {
+    const id = sanitizeId(req.params.id);
+    const stage = req.body?.stage === 'arrived' ? 'arrived' : 'departed';
+    const ref = adminDb.collection('bookings').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return res.status(404).json({ error: 'বুকিং খুঁজে পাওয়া যায়নি।' });
+    const booking = snap.data() as BookingRecord;
+
+    if (booking.companionUid !== req.authUser!.uid && !isAdminRole(req.authUser!.role)) {
+      return res.status(403).json({ error: 'শুধুমাত্র এই বুকিংয়ের সঙ্গী যাত্রার আপডেট দিতে পারবেন।' });
+    }
+    if (['declined', 'cancelled', 'completed'].includes(booking.status)) {
+      return res.status(400).json({ error: 'এই বুকিংয়ে এখন যাত্রা আপডেট দেওয়া সম্ভব নয়।' });
+    }
+
+    const now = new Date().toISOString();
+    const lat = Number(req.body?.lat);
+    const lng = Number(req.body?.lng);
+    const hasCoords = Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+
+    const updates: Record<string, any> = {
+      companionMilestoneStatus: stage,
+      updatedAt: now,
+    };
+    if (stage === 'departed') {
+      updates.companionDepartedAt = booking.companionDepartedAt || now;
+    } else {
+      updates.companionDepartedAt = booking.companionDepartedAt || now;
+      updates.companionArrivedAt = now;
+      if (hasCoords) {
+        updates.companionArrivalLat = Number(lat.toFixed(6));
+        updates.companionArrivalLng = Number(lng.toFixed(6));
+      }
+    }
+    if (['confirmed_paid', 'price_agreed_awaiting_payment', 'payment_pending'].includes(booking.status)) {
+      updates.status = 'in_progress';
+    }
+
+    await ref.update(updates);
+
+    const statusMsg =
+      stage === 'departed'
+        ? `🧳 [সঙ্গী যাত্রা শুরু করেছেন]: ${booking.companionName} বুকিং (${booking.bookingCode}) দেখে লোকেশনের উদ্দেশ্যে রওনা দিয়েছেন।`
+        : `📍 [সঙ্গী লোকেশনে পৌঁছেছেন]: ${booking.companionName} সফলভাবে ${booking.venueName} (${booking.city}) লোকেশনে পৌঁছে গেছেন! এখন সরাসরি LOGEASI চ্যাট অথবা WhatsApp/ইমেইলে কনভারসেশন শুরু করতে পারেন।`;
+
+    const msgId = `MSG_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+    await adminDb.collection('booking_messages').doc(msgId).set({
+      id: msgId,
+      bookingId: id,
+      senderUid: req.authUser!.uid,
+      senderName: `${booking.companionName} (সঙ্গী আপডেট)`,
+      body: statusMsg,
+      createdAt: now,
+    });
+
+    await createNotification({
+      userUid: booking.customerUid,
+      type: stage === 'arrived' ? 'companion_arrived' : 'companion_departed',
+      title:
+        stage === 'arrived'
+          ? `সঙ্গী লোকেশনে পৌঁছেছেন (${booking.bookingCode})`
+          : `সঙ্গী রওনা দিয়েছেন (${booking.bookingCode})`,
+      message: statusMsg,
+      link: `/bookings?bookingId=${id}`,
+    });
+
+    res.json({
+      stage,
+      companionMilestoneStatus: stage,
+      companionDepartedAt: updates.companionDepartedAt,
+      companionArrivedAt: updates.companionArrivedAt,
+      status: updates.status || booking.status,
+    });
+  } catch (err) {
+    console.error('Booking milestone error:', err);
+    res.status(500).json({ error: 'যাত্রা আপডেট সংরক্ষণ করা যায়নি।' });
   }
 });
 
@@ -1096,6 +1632,7 @@ marketplaceRouter.post(
       return res.status(403).json({ error: 'Forbidden.' });
     }
 
+    const now = new Date().toISOString();
     const msgId = `MSG_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
     const msg = {
       id: msgId,
@@ -1103,19 +1640,55 @@ marketplaceRouter.post(
       senderUid: req.authUser!.uid,
       senderName: req.authUser!.fullName,
       body,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
     };
     await adminDb.collection('booking_messages').doc(msgId).set(msg);
 
     const otherUid =
       req.authUser!.uid === booking.customerUid ? booking.companionUid : booking.customerUid;
-    await createNotification({
-      userUid: otherUid,
-      type: 'booking_message',
-      title: `New message on ${booking.bookingCode}`,
-      message: `${req.authUser!.fullName}: ${body.slice(0, 80)}`,
-      link: '/bookings',
-    });
+
+    // Notify participant + keep Admins informed in Read-Only mode (throttled max 1 alert / 3 mins per booking)
+    const lastDiscNotifyMs = Number((booking as any).lastAdminDiscussionNotifiedAtMs || 0);
+    const shouldNotifyAdmins = !lastDiscNotifyMs || Date.now() - lastDiscNotifyMs > 180_000;
+
+    const notifTasks: Array<Promise<any>> = [
+      createNotification({
+        userUid: otherUid,
+        type: 'booking_message',
+        title: `নতুন মেসেজ (${booking.bookingCode})`,
+        message: `${req.authUser!.fullName}: ${body.slice(0, 80)}`,
+        link: `/bookings?bookingId=${id}`,
+      }),
+    ];
+
+    if (shouldNotifyAdmins) {
+      await bSnap.ref.update({ lastAdminDiscussionNotifiedAtMs: Date.now() });
+      const [adminsSnap, rootLockSnap] = await Promise.all([
+        adminDb.collection('admin_accounts').get(),
+        adminDb.collection('platform_settings').doc('root_lock').get(),
+      ]);
+      const adminUidSet = new Set<string>();
+      adminsSnap.docs.forEach((d) => {
+        const a = d.data();
+        if (a.status !== 'suspended') adminUidSet.add(String(a.uid || d.id));
+      });
+      const rootUid = rootLockSnap.data()?.rootAdminUid;
+      if (rootUid) adminUidSet.add(String(rootUid));
+
+      adminUidSet.forEach((adminUid) => {
+        notifTasks.push(
+          createNotification({
+            userUid: adminUid,
+            type: 'booking_discussion_monitor',
+            title: `পর্যবেক্ষণ: কাস্টমার-সঙ্গী আলাপ (${booking.bookingCode})`,
+            message: `${booking.customerName} ও ${booking.companionName}-এর মধ্যে আলোচনা চলছে: "${body.slice(0, 70)}" (শুধুমাত্র দেখার জন্য)`,
+            link: `/admin/dashboard?dispatchBooking=${id}`,
+          })
+        );
+      });
+    }
+
+    await Promise.all(notifTasks);
 
     res.status(201).json({ message: msg });
   } catch (err) {
@@ -1204,17 +1777,29 @@ marketplaceRouter.post('/reviews', requireAuth, async (req: AuthenticatedRequest
 
     await adminDb.collection('reviews').doc(revId).set(review);
 
-    // Recompute companion rating average
-    const allRevSnap = await adminDb
-      .collection('reviews')
-      .where('companionUid', '==', booking.companionUid)
-      .get();
+    // Recompute companion rating average while preserving seeded historical review baseline
+    const cmpRef = adminDb.collection('companion_profiles').doc(booking.companionUid);
+    const [cmpSnap, allRevSnap] = await Promise.all([
+      cmpRef.get(),
+      adminDb.collection('reviews').where('companionUid', '==', booking.companionUid).get(),
+    ]);
     const ratings = allRevSnap.docs.map((d) => Number(d.data().rating || 5));
-    const avg = ratings.reduce((s, r) => s + r, 0) / Math.max(1, ratings.length);
-    await adminDb.collection('companion_profiles').doc(booking.companionUid).update({
-      ratingAvg: Number(avg.toFixed(2)),
-      reviewCount: ratings.length,
-    });
+    const currentCount = Number(cmpSnap.data()?.reviewCount || 0);
+    const currentAvg = Number(cmpSnap.data()?.ratingAvg || 0);
+    if (currentCount >= ratings.length && currentCount > 0) {
+      const nextCount = currentCount + 1;
+      const nextAvg = (currentAvg * currentCount + rating) / nextCount;
+      await cmpRef.update({
+        ratingAvg: Number(nextAvg.toFixed(2)),
+        reviewCount: nextCount,
+      });
+    } else {
+      const avg = ratings.reduce((s, r) => s + r, 0) / Math.max(1, ratings.length);
+      await cmpRef.update({
+        ratingAvg: Number(avg.toFixed(2)),
+        reviewCount: ratings.length,
+      });
+    }
 
     await createNotification({
       userUid: booking.companionUid,

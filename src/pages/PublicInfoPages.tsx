@@ -13,8 +13,8 @@ import { useAuth } from '../context/AuthContext.tsx';
 import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
-import { apiRequest, setStoredSessionToken } from '../lib/api.ts';
-import type { SupportTicketRecord } from '../types/logeasi.ts';
+import { apiRequest } from '../lib/api.ts';
+import type { CompanionApplicationRecord, SupportTicketRecord } from '../types/logeasi.ts';
 
 export function HowItWorksPage() {
   const { navigate } = useAuth();
@@ -92,11 +92,9 @@ export function HowItWorksPage() {
 }
 
 export function BecomeCompanionPage() {
-  const { user, companionProfile, refreshSession, navigate } = useAuth();
+  const { user, companionProfile, navigate } = useAuth();
 
   const [fullName, setFullName] = useState(user?.fullName || companionProfile?.displayName || '');
-  const [accountEmail, setAccountEmail] = useState(user?.email || '');
-  const [password, setPassword] = useState('');
   const [dateOfBirth, setDateOfBirth] = useState('1996-05-14');
   const [division, setDivision] = useState(companionProfile?.division || 'Dhaka');
   const [city, setCity] = useState(companionProfile?.city || 'Dhaka');
@@ -119,19 +117,18 @@ export function BecomeCompanionPage() {
   const [photoUrl, setPhotoUrl] = useState(
     companionProfile?.photoUrl || user?.photoUrl || ''
   );
-  const [adultConfirmed, setAdultConfirmed] = useState(Boolean(user));
+  const [adultConfirmed, setAdultConfirmed] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [submittedApp, setSubmittedApp] = useState<CompanionApplicationRecord | null>(null);
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (user) {
       setFullName((prev) => prev || user.fullName);
-      setAccountEmail((prev) => prev || user.email);
       setContactEmail((prev) => prev || companionProfile?.contactEmail || user.email);
       setWhatsappNumber((prev) => prev || companionProfile?.whatsappNumber || user.phone || '+88017');
       setPhotoUrl((prev) => prev || companionProfile?.photoUrl || user.photoUrl || '');
-      setAdultConfirmed(true);
     }
     if (companionProfile) {
       setDivision(companionProfile.division || 'Dhaka');
@@ -148,76 +145,46 @@ export function BecomeCompanionPage() {
   const activeDivisionObj =
     BANGLADESH_DIVISIONS.find((d) => d.id === division) || BANGLADESH_DIVISIONS[0];
 
-  const handleOnboardingSubmit = async (e: React.FormEvent) => {
+  const handleApplicationSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
 
     if (!adultConfirmed) {
-      setError('সঙ্গী হিসেবে নিবন্ধন করতে আপনার বয়স ১৮+ হওয়া নিশ্চিত করতে হবে।');
+      setError('সঙ্গী হওয়ার আবেদন করতে আপনার বয়স ১৮+ হওয়া নিশ্চিত করতে হবে।');
       return;
     }
 
     setBusy(true);
     try {
-      if (!user) {
-        const res = await apiRequest<{ user: any; sessionToken?: string }>('/api/auth/register', {
+      const res = await apiRequest<{ application: CompanionApplicationRecord; message: string }>(
+        '/api/companion-applications',
+        {
           method: 'POST',
           body: JSON.stringify({
-            email: accountEmail,
-            password,
             fullName,
+            whatsappNumber,
+            contactEmail,
+            city,
+            division,
+            gender,
             dateOfBirth,
-            city,
-            division,
-            gender,
-            role: 'companion',
-            phone: whatsappNumber,
-            instagramHandle,
-            whatsappNumber,
-            contactEmail: contactEmail || accountEmail,
-            headline,
-            bio,
             hourlyRateBdt: Number(hourlyRateBdt),
             sessionRateBdt: Number(sessionRateBdt),
+            headline,
+            bio,
+            instagramHandle,
             photoUrl,
           }),
-        });
-        if (res.sessionToken) {
-          setStoredSessionToken(res.sessionToken);
         }
-        await refreshSession();
-        setSuccess('সঙ্গী প্রোফাইল তৈরি হয়েছে! আপনার সঙ্গী ড্যাশবোর্ডে নিয়ে যাওয়া হচ্ছে...');
-        setTimeout(() => navigate('/dashboard/companion'), 400);
-      } else {
-        await apiRequest('/api/companion/profile', {
-          method: 'PUT',
-          body: JSON.stringify({
-            displayName: fullName,
-            headline,
-            bio,
-            city,
-            division,
-            gender,
-            areas: [city === 'Dhaka' ? 'Gulshan' : city],
-            languages: companionProfile?.languages || ['Bengali', 'English'],
-            categories: companionProfile?.categories || ['টং এর আড্ডার রাজা (টং চা ও গল্প)', 'ঘোরা ফেরা ও শহর ভ্রমণ'],
-            hourlyRateBdt: Number(hourlyRateBdt),
-            sessionRateBdt: Number(sessionRateBdt),
-            availabilityDays: companionProfile?.availabilityDays || ['Fri', 'Sat', 'Sun'],
-            availabilityHours: companionProfile?.availabilityHours || '10:00 AM – 9:00 PM',
-            isAvailableNow: true,
-            instagramHandle,
-            whatsappNumber,
-            contactEmail: contactEmail || user.email,
-            photoUrl,
-          }),
-        });
-        await refreshSession();
-        setSuccess('আপনার সঙ্গী প্রোফাইল, ছবি ও Instagram/WhatsApp/Email তথ্য সংরক্ষিত হয়েছে!');
-      }
+      );
+      setSubmittedApp(res.application);
+      setSuccess(
+        res.message ||
+          'আপনার আবেদন অ্যাডমিনের কাছে জমা হয়েছে! অ্যাডমিন যাচাই করে WhatsApp-এ আপনার ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন।'
+      );
     } catch (err: any) {
-      setError(err.message || 'সঙ্গী তথ্য সংরক্ষণ করা যায়নি।');
+      setError(err.message || 'সঙ্গী আবেদন জমা দেওয়া যায়নি।');
     } finally {
       setBusy(false);
     }
@@ -227,39 +194,65 @@ export function BecomeCompanionPage() {
     <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       <div className="bg-slate-950 text-white rounded-2xl p-8 sm:p-12 hero-architectural-grid border border-slate-800 space-y-5">
         <p className="text-xs font-mono uppercase tracking-widest text-blue-400">
-          সঙ্গী পার্টনার স্টুডিও · বাংলাদেশের ৮টি বিভাগ
+          সঙ্গী আবেদন ও অ্যাডমিন অনুমোদন ডেস্ক · বাংলাদেশের ৮টি বিভাগ
         </p>
         <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-balance max-w-3xl">
-          আপনার নিজের সময়সূচি অনুযায়ী নিরাপদ সামাজিক সঙ্গী সেবা দিন
+          সঙ্গী হওয়ার আবেদন জমা দিন — অ্যাডমিন যাচাই করে অ্যাকাউন্ট বুঝিয়ে দেবেন
         </h1>
         <p className="text-sm sm:text-base text-slate-300 max-w-2xl leading-relaxed">
-          নিজের BDT (৳) ঘণ্টা ও সেশন রেট নির্ধারণ করুন, প্রোফাইলে Instagram, WhatsApp ও ইমেইল যুক্ত করুন এবং সরাসরি ড্যাশবোর্ড থেকে বুকিং পরিচালনা করুন।
+          নিরাপত্তা ও গুণগত মান নিশ্চিত করতে সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না। নিচের ফর্মে আপনার সঠিক WhatsApp নম্বর ও তথ্য দিন — অ্যাডমিন অনুমোদন করে WhatsApp-এ যোগাযোগের পর আপনার ইমেইল ও পাসওয়ার্ড তৈরি করে দেবেন।
         </p>
+        {user?.role === 'companion' && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/companion')}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              আপনার অনুমোদিত সঙ্গী ড্যাশবোর্ডে যান →
+            </button>
+          </div>
+        )}
       </div>
+
+      {submittedApp && (
+        <div className="bg-emerald-50 border-2 border-emerald-300 rounded-2xl p-6 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="font-display text-lg font-bold text-emerald-950 flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-700" /> আবেদন সফলভাবে অ্যাডমিনের কাছে জমা হয়েছে!
+            </h2>
+            <span className="font-mono text-xs font-bold text-emerald-800 bg-white border border-emerald-300 px-3 py-1 rounded-lg">
+              আবেদন আইডি: {submittedApp.id}
+            </span>
+          </div>
+          <p className="text-xs text-emerald-900 leading-relaxed">
+            আবেদনকারী: <strong>{submittedApp.fullName}</strong> · WhatsApp: <strong className="font-mono">{submittedApp.whatsappNumber}</strong> · এলাকা: <strong>{submittedApp.city}</strong>।
+            অ্যাডমিন আপনার আবেদন অনুমোদন করে আপনার WhatsApp নম্বরে যোগাযোগ করে একটি ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন। এরপর লগইন পেজ থেকে প্রবেশ করে আপনার বিষয়ে পোস্ট করতে ও বুকিং গ্রহণ করতে পারবেন।
+          </p>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         <form
-          onSubmit={handleOnboardingSubmit}
+          onSubmit={handleApplicationSubmit}
           className="lg:col-span-7 bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm space-y-5"
         >
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
             <div>
               <h2 className="font-display text-xl font-bold text-slate-950">
-                {user ? 'আপনার সঙ্গী প্রোফাইল সক্রিয় / আপডেট করুন' : 'সঙ্গী হিসেবে যোগ দিন (সরাসরি আবেদন)'}
+                নতুন সঙ্গী হওয়ার আবেদন ফর্ম
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                Instagram, WhatsApp, যোগাযোগের ইমেইল ও কাস্টম BDT রেট নির্ধারণ সুবিধা
+                অ্যাডমিন অনুমোদন ও WhatsApp-এ লগইন তথ্য হস্তান্তরের জন্য সঠিক তথ্য দিন
               </p>
             </div>
-            {user && (
-              <button
-                type="button"
-                onClick={() => navigate('/dashboard/companion')}
-                className="px-3.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
-              >
-                ড্যাশবোর্ডে যান
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => navigate('/auth?mode=companion')}
+              className="px-3.5 py-1.5 bg-slate-900 text-white text-xs font-semibold rounded-lg cursor-pointer"
+            >
+              আগেই অ্যাকাউন্ট পেয়েছেন? লগইন করুন
+            </button>
           </div>
 
           {error && (
@@ -446,43 +439,29 @@ export function BecomeCompanionPage() {
             />
           </div>
 
-          {!user && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">লগইন ইমেইল</label>
-                <input
-                  required
-                  type="email"
-                  value={accountEmail}
-                  onChange={(e) => setAccountEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">পাসওয়ার্ড (৬+ অক্ষর)</label>
-                <input
-                  required
-                  minLength={6}
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="পাসওয়ার্ড দিন"
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">জন্ম তারিখ (১৮+)</label>
-                <input
-                  required
-                  type="date"
-                  value={dateOfBirth}
-                  onChange={(e) => setDateOfBirth(e.target.value)}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-slate-100">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">জন্ম তারিখ (১৮+ বয়স যাচাইয়ের জন্য বাধ্যতামূলক)</label>
+              <input
+                required
+                type="date"
+                value={dateOfBirth}
+                onChange={(e) => setDateOfBirth(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono"
+              />
             </div>
-          )}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">WhatsApp নম্বর নিশ্চিত করুন (অ্যাডমিন যোগাযোগ করবেন)</label>
+              <input
+                required
+                type="tel"
+                value={whatsappNumber}
+                onChange={(e) => setWhatsappNumber(e.target.value)}
+                placeholder="+8801712345678"
+                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm font-mono"
+              />
+            </div>
+          </div>
 
           <label className="flex items-start gap-2 text-xs text-slate-700">
             <input
@@ -492,7 +471,7 @@ export function BecomeCompanionPage() {
               className="mt-0.5"
             />
             <span>
-              আমি নিশ্চিত করছি যে আমার বয়স ১৮+ এবং আমি শুধুমাত্র মার্জিত, আইনসম্মত পাবলিক সামাজিক সঙ্গী ও সহায়তা সেবা প্রদান করব।
+              আমি নিশ্চিত করছি যে আমার বয়স ১৮+ এবং অ্যাডমিন আবেদন অনুমোদন করে WhatsApp-এ আমার ইমেইল ও পাসওয়ার্ড তৈরি করে দিলে তবেই আমার সঙ্গী অ্যাকাউন্ট চালু হবে।
             </span>
           </label>
 
@@ -501,34 +480,30 @@ export function BecomeCompanionPage() {
             disabled={busy}
             className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-colors cursor-pointer disabled:opacity-60"
           >
-            {busy
-              ? 'প্রোফাইল সংরক্ষণ হচ্ছে...'
-              : user
-                ? 'সঙ্গী প্রোফাইল সংরক্ষণ ও সক্রিয় করুন'
-                : 'সঙ্গী অ্যাকাউন্ট তৈরি ও প্রকাশ করুন'}
+            {busy ? 'আবেদন জমা হচ্ছে...' : 'অ্যাডমিনের কাছে সঙ্গী আবেদন জমা দিন'}
           </button>
         </form>
 
         <div className="lg:col-span-5 space-y-5">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <CheckCircle2 className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">সম্পূর্ণ রেট ও সময়সূচি স্বাধীনতা</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">১. আবেদন জমা ও WhatsApp-এ অ্যাডমিন যোগাযোগ</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              নিজের BDT (৳) ঘণ্টাপ্রতি ও ৪-ঘণ্টার সেশন রেট ঠিক করুন এবং বুকিং গ্রহণের আগে প্রয়োজনে নতুন মূল্য প্রস্তাব করুন।
+              আবেদন জমা দেওয়ার পর অ্যাডমিন আপনার তথ্য যাচাই করবেন এবং আপনার WhatsApp নম্বরে যোগাযোগ করে একটি ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন।
             </p>
           </div>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <Shield className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">১৮+ NID / স্কুল রোল সুরক্ষা</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">২. নিজের পোস্ট প্রকাশ ও বুকিং পরিচালনা</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              ভেরিফিকেশন অ্যাডমিনের অনুমোদনের জন্য সঙ্গী ড্যাশবোর্ড থেকে NID, স্কুল রোল বা পাসপোর্ট জমা দিন।
+              অ্যাকাউন্ট বুঝে পাওয়ার পর প্রোফাইলে নিজের বিষয়ে পোস্ট লিখতে পারবেন, বুকিং দেখে লোকেশনে রওনা দিতে পারবেন এবং গ্রাহকের সাথে নিরাপদ কনভারসেশন করতে পারবেন।
             </p>
           </div>
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-2.5 shadow-sm">
             <ShieldCheck className="w-5 h-5 text-blue-700" />
-            <h3 className="font-display text-base font-bold text-slate-950">দ্রুত bKash ও Nagad পেআউট</h3>
+            <h3 className="font-display text-base font-bold text-slate-950">৩. অ্যাডমিন কর্তৃক পেমেন্ট রিসিভ ও WhatsApp হস্তান্তর</h3>
             <p className="text-sm text-slate-600 leading-relaxed">
-              সেশন সম্পন্ন হলে ফিন্যান্স যাচাইয়ের পর সরাসরি bKash, Nagad, Rocket বা ব্যাংক EFT-তে আয় উত্তোলন করুন।
+              গ্রাহকের সমস্ত পেমেন্ট অ্যাডমিন রিসিভ করবেন। সেশন শেষে অ্যাডমিন আপনার পাওনা টাকা WhatsApp বা bKash/Nagad-এ যোগাযোগ করে সরাসরি বুঝিয়ে দেবেন।
             </p>
           </div>
           <DeveloperBanner variant="card" />
@@ -765,6 +740,9 @@ export function PrivacyPolicyPage() {
         <p><strong>২. পেমেন্ট তথ্যের শূন্য-সংরক্ষণ নীতি:</strong> আমরা কখনোই কার্ড নম্বর, CVV বা বিকাশ/নগদ/রকেট PIN সংগ্রহ বা সংরক্ষণ করি না। ডিজিটাল পেমেন্ট HMAC-SHA256 স্বাক্ষরিত ওয়েবহুক বা TrxID যাচাইয়ের মাধ্যমে সম্পন্ন হয়।</p>
         <p><strong>৩. প্রশাসনিক নিয়ন্ত্রণ ও অডিট:</strong> কোনো অ্যাডমিন ব্যবহারকারীর পাসওয়ার্ড, OTP বা পেমেন্ট পিন দেখতে পারেন না। প্রতিটি গুরুত্বপূর্ণ প্রশাসনিক কাজ অডিট লগে সংরক্ষিত থাকে।</p>
         <p><strong>৪. তথ্য নিয়ন্ত্রণ:</strong> ব্যবহারকারীরা যেকোনো সময় ড্যাশবোর্ড থেকে তাদের প্রোফাইল, ব্লকলিস্ট ও জরুরি যোগাযোগের তথ্য পরিবর্তন করতে পারবেন।</p>
+        <p><strong>৫. লাইভ লোকেশন ও Google Maps গোপনীয়তা:</strong> লাইভ GPS লোকেশন শেয়ারিং শুধুমাত্র ব্যবহারকারীর সুস্পষ্ট সম্মতিতে চালু হয় এবং যেকোনো সময় &ldquo;লোকেশন বন্ধ করুন&rdquo; বাটনের মাধ্যমে তাৎক্ষণিক বাতিলযোগ্য। Google Maps ব্যবহারের ক্ষেত্রে{' '}
+          <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" className="underline text-blue-700">Google Privacy Policy</a> প্রযোজ্য।
+        </p>
       </div>
     </main>
   );
@@ -779,6 +757,9 @@ export function TermsPage() {
         <p><strong>২. শুধুমাত্র আইনসম্মত ও অহিংস সেবা:</strong> LOGEASI.COM শুধুমাত্র সামাজিক আড্ডা, ঘোরাফেরা, পাবলিক ইভেন্ট ও দৈনন্দিন সহায়তার প্ল্যাটফর্ম। মারামারি, মাদক, হুমকি বা অনৈতিক কোনো কাজ সম্পূর্ণ নিষিদ্ধ।</p>
         <p><strong>৩. মূল্য, ফি ও এস্ক্রো:</strong> সকল মূল্য বাংলাদেশি টাকায় (BDT ৳) নির্ধারিত। পেমেন্টের আগে কাস্টমার ও সঙ্গী উভয়ের চূড়ান্ত মূল্যে সম্মতি প্রয়োজন।</p>
         <p><strong>৪. বাতিল ও রিফান্ড:</strong> সেশন সম্পন্ন হওয়ার আগে পরিশোধিত বুকিং বাতিল হলে ফিন্যান্স ও সাপোর্ট অ্যাডমিনের রিভিউয়ের জন্য স্বয়ংক্রিয়ভাবে রিফান্ড অনুরোধ তৈরি হয়।</p>
+        <p><strong>৫. Google Maps Platform ব্যবহারের শর্তাবলী:</strong> এই ওয়েবসাইটে মিটআপ লোকেশন সমন্বয়ের জন্য Google Maps ফিচার সংযুক্ত রয়েছে, যা{' '}
+          <a href="https://maps.google.com/help/terms_maps/" target="_blank" rel="noopener noreferrer" className="underline text-blue-700">Google Maps/Google Earth Additional Terms of Service</a>-এর অধীন।
+        </p>
       </div>
     </main>
   );

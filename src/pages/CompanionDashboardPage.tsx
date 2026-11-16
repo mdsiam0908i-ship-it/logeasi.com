@@ -2,11 +2,16 @@ import React, { useEffect, useState } from 'react';
 import {
   Banknote,
   Calendar,
+  CheckCircle2,
   Instagram,
   LogOut,
   Mail,
+  MapPin,
   MessageCircle,
+  Navigation,
   ShieldCheck,
+  Sparkles,
+  Trash2,
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
@@ -16,7 +21,12 @@ import { ReferralInviteWidget } from '../components/ReferralInviteWidget.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
 import { DEFAULT_BENGALI_BOOKING_CATEGORIES } from '../data/bookingCategories.ts';
 import { apiRequest, formatBdt } from '../lib/api.ts';
-import type { BookingRecord, CompanionPayoutRecord, VerificationRequestRecord } from '../types/logeasi.ts';
+import type {
+  BookingRecord,
+  CompanionPayoutRecord,
+  CompanionPostRecord,
+  VerificationRequestRecord,
+} from '../types/logeasi.ts';
 
 export function CompanionDashboardPage() {
   const { user, companionProfile, platformPublic, currentPath, refreshSession, logout, navigate } = useAuth();
@@ -67,21 +77,32 @@ export function CompanionDashboardPage() {
   const [payoutMethod, setPayoutMethod] = useState<'bkash' | 'nagad' | 'rocket' | 'bank_eft'>('bkash');
   const [payoutAccount, setPayoutAccount] = useState('');
 
+  // Companion personal posts
+  const [posts, setPosts] = useState<CompanionPostRecord[]>([]);
+  const [postTitle, setPostTitle] = useState('');
+  const [postContent, setPostContent] = useState('');
+  const [postTag, setPostTag] = useState('আমার আপডেট');
+  const [postPhotoUrl, setPostPhotoUrl] = useState('');
+  const [postBusy, setPostBusy] = useState(false);
+
   // Counter offer price map
   const [counterPrices, setCounterPrices] = useState<Record<string, string>>({});
+  const [milestoneBusyId, setMilestoneBusyId] = useState('');
   const [notice, setNotice] = useState('');
 
   const loadCompanionData = async () => {
     if (!user) return;
     try {
-      const [bRes, pRes, vRes] = await Promise.all([
+      const [bRes, pRes, vRes, postsRes] = await Promise.all([
         apiRequest<{ bookings: BookingRecord[] }>('/api/bookings'),
         apiRequest<{ payouts: CompanionPayoutRecord[] }>('/api/payouts/mine'),
         apiRequest<{ verifications: VerificationRequestRecord[] }>('/api/verifications/mine'),
+        apiRequest<{ posts: CompanionPostRecord[] }>(`/api/companions/${user.uid}/posts`).catch(() => ({ posts: [] })),
       ]);
       setBookings((bRes.bookings || []).filter((b) => b.companionUid === user.uid));
       setPayouts(pRes.payouts || []);
       setVerifications(vRes.verifications || []);
+      setPosts(postsRes.posts || []);
     } catch {
       // ignore
     }
@@ -122,13 +143,42 @@ export function CompanionDashboardPage() {
     return (
       <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
         <h1 className="font-display text-2xl font-bold text-slate-950">সঙ্গী (কম্প্যানিয়ন) ড্যাশবোর্ড</h1>
-        <p className="text-sm text-slate-600">আপনার রেট, সোশ্যাল চ্যানেল, সময়সূচি ও বুকিং পরিচালনা করতে ১৮+ সঙ্গী হিসেবে লগইন বা সাইন আপ করুন।</p>
+        <p className="text-sm text-slate-600">
+          সঙ্গী অ্যাকাউন্ট সরাসরি খোলা যায় না। অ্যাডমিন আপনার আবেদন অনুমোদন করে WhatsApp-এ যে ইমেইল ও পাসওয়ার্ড দিয়েছেন, তা দিয়ে লগইন করুন অথবা নতুন আবেদন জমা দিন।
+        </p>
+        <div className="flex flex-wrap justify-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate('/auth?mode=companion')}
+            className="px-5 py-2.5 bg-blue-700 text-white rounded-lg text-sm font-semibold cursor-pointer"
+          >
+            অ্যাডমিন প্রদত্ত অ্যাকাউন্টে লগইন করুন
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate('/become-companion')}
+            className="px-5 py-2.5 border border-slate-300 text-slate-800 rounded-lg text-sm font-semibold cursor-pointer"
+          >
+            নতুন সঙ্গী আবেদন জমা দিন
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  if (user.role === 'customer') {
+    return (
+      <main className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
+        <h1 className="font-display text-2xl font-bold text-slate-950">সঙ্গী ড্যাশবোর্ড সংরক্ষিত</h1>
+        <p className="text-sm text-slate-600">
+          আপনি বর্তমানে কাস্টমার অ্যাকাউন্টে লগইন আছেন। সঙ্গী হতে চাইলে আবেদন ফর্ম জমা দিন — অ্যাডমিন যাচাই করে আপনার WhatsApp-এ ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন।
+        </p>
         <button
           type="button"
-          onClick={() => navigate('/auth?mode=companion')}
+          onClick={() => navigate('/become-companion')}
           className="px-5 py-2.5 bg-blue-700 text-white rounded-lg text-sm font-semibold cursor-pointer"
         >
-          সঙ্গী লগইন / সাইন আপ করুন
+          সঙ্গী হওয়ার আবেদন ফর্মে যান →
         </button>
       </main>
     );
@@ -231,9 +281,67 @@ export function CompanionDashboardPage() {
       setPayoutAccount('');
       await refreshSession();
       await loadCompanionData();
-      setNotice('পেআউট অনুরোধ ফিন্যান্স অ্যাডমিনের অনুমোদনের জন্য পাঠানো হয়েছে।');
+      setNotice('পেআউট অনুরোধ অ্যাডমিনের অনুমোদনের জন্য পাঠানো হয়েছে। অ্যাডমিন WhatsApp বা নির্বাচিত মাধ্যমে টাকা বুঝিয়ে দেবেন।');
     } catch (err: any) {
       setNotice(err.message);
+    }
+  };
+
+  const createCompanionPost = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotice('');
+    setPostBusy(true);
+    try {
+      const res = await apiRequest<{ post: CompanionPostRecord }>('/api/companion/posts', {
+        method: 'POST',
+        body: JSON.stringify({
+          title: postTitle,
+          content: postContent,
+          tag: postTag,
+          photoUrl: postPhotoUrl,
+        }),
+      });
+      setPosts((prev) => [res.post, ...prev]);
+      setPostTitle('');
+      setPostContent('');
+      setPostPhotoUrl('');
+      setNotice('আপনার পোস্ট পাবলিক প্রোফাইলে প্রকাশিত হয়েছে!');
+    } catch (err: any) {
+      setNotice(err.message || 'পোস্ট প্রকাশ করা যায়নি।');
+    } finally {
+      setPostBusy(false);
+    }
+  };
+
+  const deleteCompanionPost = async (postId: string) => {
+    setNotice('');
+    try {
+      await apiRequest(`/api/companion/posts/${postId}`, { method: 'DELETE' });
+      setPosts((prev) => prev.filter((p) => p.id !== postId));
+      setNotice('পোস্ট মুছে ফেলা হয়েছে।');
+    } catch (err: any) {
+      setNotice(err.message || 'পোস্ট মুছে ফেলা যায়নি।');
+    }
+  };
+
+  const updateJourneyMilestone = async (bookingId: string, stage: 'departed' | 'arrived') => {
+    setNotice('');
+    setMilestoneBusyId(`${bookingId}_${stage}`);
+    try {
+      await apiRequest(`/api/bookings/${bookingId}/milestone`, {
+        method: 'POST',
+        body: JSON.stringify({ stage }),
+      });
+      await loadCompanionData();
+      setNotice(
+        stage === 'departed'
+          ? 'কাস্টমার ও অ্যাডমিনকে জানানো হয়েছে যে আপনি ব্যাগ গুছিয়ে লোকেশনের উদ্দেশ্যে রওনা দিয়েছেন!'
+          : 'লোকেশনে সফল আগমন রেকর্ড হয়েছে! এখন সরাসরি কাস্টমারের সাথে কনভারসেশন শুরু করতে পারেন।'
+      );
+    } catch (err: any) {
+      setNotice(err.message || 'যাত্রা আপডেট দেওয়া যায়নি।');
+    } finally {
+      setMilestoneBusyId('');
     }
   };
 
@@ -729,57 +837,253 @@ export function CompanionDashboardPage() {
           </form>
         </div>
 
-        {/* Right: Incoming Bookings + Earnings & Payouts */}
+        {/* Right: Companion Personal Posts + Incoming Bookings + Earnings & Admin WhatsApp Payouts */}
         <div className="lg:col-span-6 space-y-6">
+          {/* Companion Personal Posts Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
-            <h2 className="font-display text-lg font-bold text-slate-950">আগত ও চলমান বুকিং</h2>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-lg font-bold text-slate-950 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-700" /> নিজের বিষয়ে পোস্ট লিখুন ও প্রকাশ করুন
+                </h2>
+                <p className="text-xs text-slate-500">
+                  আপনার পোস্টগুলো পাবলিক প্রোফাইলে কাস্টমাররা দেখতে পাবেন। (অ্যাডমিন প্রয়োজনে মডারেশন করতে পারেন)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate(`/companions/${user.uid}`)}
+                className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+              >
+                প্রোফাইলে দেখুন →
+              </button>
+            </div>
+
+            <form onSubmit={createCompanionPost} className="space-y-3 bg-slate-50 border border-slate-200 rounded-xl p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                <input
+                  required
+                  type="text"
+                  value={postTitle}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  placeholder="পোস্টের শিরোনাম (যেমন: আজ সন্ধ্যায় গুলশান আড্ডা)"
+                  className="sm:col-span-2 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs"
+                />
+                <select
+                  value={postTag}
+                  onChange={(e) => setPostTag(e.target.value)}
+                  className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs"
+                >
+                  <option value="আমার আপডেট">আমার আপডেট</option>
+                  <option value="আজকের সময়সূচি">আজকের সময়সূচি</option>
+                  <option value="ভ্রমণ ও কফি">ভ্রমণ ও কফি</option>
+                  <option value="বিশেষ ঘোষণা">বিশেষ ঘোষণা</option>
+                </select>
+              </div>
+              <textarea
+                required
+                rows={2}
+                value={postContent}
+                onChange={(e) => setPostContent(e.target.value)}
+                placeholder="আপনার সম্পর্কে, পছন্দের জায়গা বা কখন সময় দিতে পারবেন তা লিখুন..."
+                className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs"
+              />
+              <DevicePhotoPicker
+                label="পোস্টের ছবি (ঐচ্ছিক)"
+                helperText="চাইলে ডিভাইস থেকে একটি ছবি যুক্ত করুন।"
+                value={postPhotoUrl}
+                onChange={setPostPhotoUrl}
+              />
+              <button
+                type="submit"
+                disabled={postBusy}
+                className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg cursor-pointer disabled:opacity-60"
+              >
+                {postBusy ? 'প্রকাশ হচ্ছে...' : 'পোস্ট প্রকাশ করুন'}
+              </button>
+            </form>
+
+            {posts.length > 0 && (
+              <div className="divide-y divide-slate-100 max-h-64 overflow-y-auto">
+                {posts.map((p) => (
+                  <div key={p.id} className="py-3 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
+                    <div className="space-y-1 min-w-0">
+                      <div className="flex items-center gap-2 text-[11px]">
+                        <span className="font-semibold text-blue-700">{p.tag || 'আপডেট'}</span>
+                        <span className="text-slate-400 font-mono">
+                          {new Date(p.createdAt).toLocaleDateString('bn-BD')}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold text-slate-900">{p.title}</p>
+                      <p className="text-xs text-slate-600 line-clamp-2">{p.content}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => deleteCompanionPost(p.id)}
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg shrink-0 cursor-pointer"
+                      title="পোস্ট মুছুন"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+            <h2 className="font-display text-lg font-bold text-slate-950">আগত ও চলমান বুকিং (ব্যাগ গুছিয়ে যাত্রা ও লোকেশন)</h2>
             {bookings.length === 0 ? (
               <p className="text-sm text-slate-500">এখনো কোনো বুকিং অনুরোধ আসেনি।</p>
             ) : (
               <div className="divide-y divide-slate-100">
-                {bookings.map((b) => (
-                  <div key={b.id} className="py-4 first:pt-0 last:pb-0 space-y-2.5">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono font-semibold text-slate-900">{b.bookingCode}</span>
-                      <span className="capitalize font-semibold text-blue-700">{b.status.replace(/_/g, ' ')}</span>
-                    </div>
-                    <p className="text-sm font-semibold text-slate-950">
-                      {b.customerName} · {b.venueName} ({b.city})
-                    </p>
-                    <p className="text-xs text-slate-600 font-mono tabular-nums">
-                      {b.bookingDate} {b.startTime} · {b.durationHours} ঘণ্টা · প্রস্তাবিত {formatBdt(b.agreedPriceBdt)} (আপনার আয় {formatBdt(b.companionNetBdt)})
-                    </p>
-                    {b.notes && <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded">{b.notes}</p>}
-
-                    {b.status === 'requested' && (
-                      <div className="flex flex-wrap items-center gap-2 pt-1">
-                        <input
-                          type="number"
-                          placeholder="নতুন প্রস্তাব BDT (ঐচ্ছিক)"
-                          value={counterPrices[b.id] || ''}
-                          onChange={(e) =>
-                            setCounterPrices((prev) => ({ ...prev, [b.id]: e.target.value }))
-                          }
-                          className="w-44 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => respondBooking(b.id, 'accept')}
-                          className="px-3 py-1.5 bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
-                        >
-                          গ্রহণ / নতুন মূল্য প্রস্তাব
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => respondBooking(b.id, 'decline')}
-                          className="px-3 py-1.5 border border-red-200 text-red-700 text-xs font-semibold rounded-lg cursor-pointer"
-                        >
-                          প্রত্যাখ্যান
-                        </button>
+                {bookings.map((b) => {
+                  const canTravel = !['requested', 'declined', 'cancelled', 'completed'].includes(b.status);
+                  const waHref = b.customerWhatsapp
+                    ? `https://wa.me/${b.customerWhatsapp.replace(/[^\d]/g, '')}`
+                    : '';
+                  return (
+                    <div key={b.id} className="py-4 first:pt-0 last:pb-0 space-y-2.5">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono font-semibold text-slate-900">{b.bookingCode}</span>
+                        <span className="capitalize font-semibold text-blue-700">{b.status.replace(/_/g, ' ')}</span>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <p className="text-sm font-semibold text-slate-950">
+                        {b.customerName} · {b.venueName} ({b.city})
+                      </p>
+                      <p className="text-xs text-slate-600 font-mono tabular-nums">
+                        {b.bookingDate} {b.startTime} · {b.durationHours} ঘণ্টা · প্রস্তাবিত {formatBdt(b.agreedPriceBdt)} (আপনার আয় {formatBdt(b.companionNetBdt)})
+                      </p>
+                      {b.notes && <p className="text-xs text-slate-600 bg-slate-50 p-2 rounded">{b.notes}</p>}
+
+                      {b.status === 'requested' && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <input
+                            type="number"
+                            placeholder="নতুন প্রস্তাব BDT (ঐচ্ছিক)"
+                            value={counterPrices[b.id] || ''}
+                            onChange={(e) =>
+                              setCounterPrices((prev) => ({ ...prev, [b.id]: e.target.value }))
+                            }
+                            className="w-44 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => respondBooking(b.id, 'accept')}
+                            className="px-3 py-1.5 bg-blue-700 text-white text-xs font-semibold rounded-lg cursor-pointer"
+                          >
+                            গ্রহণ / নতুন মূল্য প্রস্তাব
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => respondBooking(b.id, 'decline')}
+                            className="px-3 py-1.5 border border-red-200 text-red-700 text-xs font-semibold rounded-lg cursor-pointer"
+                          >
+                            প্রত্যাখ্যান
+                          </button>
+                        </div>
+                      )}
+
+                      {b.customerLiveLocation && (
+                        <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-950 flex flex-wrap items-center justify-between gap-2">
+                          <span className="inline-flex items-center gap-1.5 font-semibold">
+                            <MapPin className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+                            কাস্টমার লাইভ লোকেশন শেয়ার করেছেন: {b.customerLiveLocation.addressLabel || b.venueName} (
+                            <span className="font-mono text-[11px]">
+                              {b.customerLiveLocation.lat.toFixed(4)}, {b.customerLiveLocation.lng.toFixed(4)}
+                            </span>
+                            )
+                          </span>
+                          <a
+                            href={`https://www.google.com/maps?q=${b.customerLiveLocation.lat},${b.customerLiveLocation.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-700 font-bold underline"
+                          >
+                            Google Maps-এ দেখুন
+                          </a>
+                        </div>
+                      )}
+
+                      {!['declined', 'cancelled'].includes(b.status) && !canTravel && (
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/bookings?bookingId=${b.id}`)}
+                            className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" /> কাস্টমারের সাথে আলাপ-আলোচনা ও লাইভ ম্যাপ
+                          </button>
+                        </div>
+                      )}
+
+                      {canTravel && (
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-2">
+                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                            <span className="font-semibold text-slate-700">সার্ভিস যাত্রা ধাপ:</span>
+                            {b.companionDepartedAt && (
+                              <span className="text-blue-700 font-mono font-semibold inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> রওনা দিয়েছেন
+                              </span>
+                            )}
+                            {b.companionArrivedAt && (
+                              <span className="text-emerald-700 font-mono font-semibold inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> লোকেশনে পৌঁছেছেন
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {!b.companionDepartedAt && (
+                              <button
+                                type="button"
+                                disabled={milestoneBusyId === `${b.id}_departed`}
+                                onClick={() => updateJourneyMilestone(b.id, 'departed')}
+                                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <Navigation className="w-3.5 h-3.5" /> ব্যাগ গুছিয়ে রওনা দিয়েছি
+                              </button>
+                            )}
+                            {!b.companionArrivedAt && (
+                              <button
+                                type="button"
+                                disabled={milestoneBusyId === `${b.id}_arrived`}
+                                onClick={() => updateJourneyMilestone(b.id, 'arrived')}
+                                className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <MapPin className="w-3.5 h-3.5" /> সফলভাবে লোকেশনে পৌঁছেছি
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/bookings?bookingId=${b.id}`)}
+                              className="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" /> LOGEASI চ্যাট ও ম্যাপ
+                            </button>
+                            {waHref && (
+                              <a
+                                href={waHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                              >
+                                কাস্টমার WhatsApp
+                              </a>
+                            )}
+                            {b.customerEmail && (
+                              <a
+                                href={`mailto:${b.customerEmail}`}
+                                className="px-3 py-1.5 bg-white border border-slate-200 text-slate-800 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5"
+                              >
+                                ইমেইল
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -787,7 +1091,7 @@ export function CompanionDashboardPage() {
           <form onSubmit={requestPayout} className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-display text-lg font-bold text-slate-950 flex items-center gap-2">
-                <Wallet className="w-4 h-4 text-blue-700" /> আয় উত্তোলনের অনুরোধ
+                <Wallet className="w-4 h-4 text-blue-700" /> আয় উত্তোলনের অনুরোধ (অ্যাডমিন সমন্বিত)
               </h2>
               <button
                 type="button"
@@ -797,6 +1101,9 @@ export function CompanionDashboardPage() {
                 অ্যাডভান্স, বকেয়া ও রসিদ দেখুন →
               </button>
             </div>
+            <p className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2.5 leading-relaxed">
+              কাস্টমারের সমস্ত পেমেন্ট অ্যাডমিন রিসিভ করেন। সেশন শেষে অ্যাডমিন আপনার WhatsApp নম্বরে যোগাযোগ করে সরাসরি অথবা bKash/Nagad-এ টাকা বুঝিয়ে দেবেন।
+            </p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <input
                 required

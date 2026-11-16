@@ -4,6 +4,7 @@ import { adminDb } from '../lib/firebase-admin.ts';
 import {
   attachAuthIfPresent,
   requireAdmin,
+  requireAnyPermission,
   requireAuth,
   requirePermission,
   requireProfileUnlocked,
@@ -20,16 +21,31 @@ import {
   writeAuditLog,
 } from './rbac.ts';
 import {
+  calculateAgeFromDob,
+  encryptSensitive,
   generateRandomAdminUsername,
   generateStrongRandomPassword,
   hashPassword,
+  rotateRuntimeSecrets,
   sanitizeId,
   sanitizePhotoData,
   sanitizeString,
+  signSessionToken,
   signWebhookPayload,
+  verifyPassword,
   verifyWebhookSignature,
 } from './security.ts';
-import type { BookingRecord, PaymentGateway, PaymentRecord, UserRole } from '../types/logeasi.ts';
+import { ensureUserReferralCode } from './referrals.ts';
+import type {
+  BookingLocationPoint,
+  BookingRecord,
+  CompanionApplicationRecord,
+  CompanionProfile,
+  PaymentGateway,
+  PaymentRecord,
+  UserAccount,
+  UserRole,
+} from '../types/logeasi.ts';
 import {
   containsUnsafeViolenceTerm,
   DEFAULT_BENGALI_BOOKING_CATEGORIES,
@@ -38,6 +54,60 @@ import {
 
 export const paymentsAdminRouter = Router();
 paymentsAdminRouter.use(attachAuthIfPresent);
+
+async function getActiveAdminUids(): Promise<string[]> {
+  const [adminsSnap, rootLockSnap] = await Promise.all([
+    adminDb.collection('admin_accounts').get(),
+    adminDb.collection('platform_settings').doc('root_lock').get(),
+  ]);
+  const uids = new Set<string>();
+  adminsSnap.docs.forEach((d) => {
+    const data = d.data();
+    if (data.status !== 'suspended') {
+      uids.add(String(data.uid || d.id));
+    }
+  });
+  const rootUid = rootLockSnap.data()?.rootAdminUid;
+  if (rootUid) uids.add(String(rootUid));
+  return Array.from(uids);
+}
+
+async function notifyAdminsOnAdvancePaymentEvent(params: {
+  booking: BookingRecord;
+  payment: PaymentRecord;
+  phase: 'submitted' | 'verified';
+}) {
+  const { booking, payment, phase } = params;
+  const adminUids = await getActiveAdminUids();
+  const hasLiveLoc = Boolean(booking.customerLiveLocation?.lat && booking.customerLiveLocation?.lng);
+  const locText = hasLiveLoc
+    ? `লাইভ লোকেশন সংযুক্ত (${booking.customerLiveLocation!.lat.toFixed(4)}, ${booking.customerLiveLocation!.lng.toFixed(4)})`
+    : 'কাস্টমারের লাইভ লোকেশন এখনো চাওয়া/পাওয়া যায়নি';
+
+  const title =
+    phase === 'verified'
+      ? `৫০% পেমেন্ট সম্পন্ন: কাস্টমারকে ম্যাপ লোকেশন বুঝিয়ে দিন (${booking.bookingCode})`
+      : `৫০% অ্যাডভান্স জমা হয়েছে: যাচাই ও ম্যাপ ডিসপ্যাচ করুন (${booking.bookingCode})`;
+  const message =
+    phase === 'verified'
+      ? `${booking.customerName} (বুকিং ${booking.bookingCode}) BDT ৳${payment.amountBdt.toLocaleString()} (${payment.gateway.toUpperCase()}) ৫০% পেমেন্ট সম্পন্ন করেছেন। ${locText}। অ্যাডমিন প্যানেল থেকে Google Maps লোকেশন ও মিটআপ নির্দেশনা পাঠান।`
+      : `${booking.customerName} (বুকিং ${booking.bookingCode}) ${payment.gateway.toUpperCase()} রেফারেন্স (${payment.senderReferenceTrxId || payment.transactionId}) জমা দিয়েছেন। ${locText}।`;
+
+  await Promise.all([
+    ...adminUids.map((uid) =>
+      createNotification({
+        userUid: uid,
+        type: 'admin_50_payment_dispatch',
+        title,
+        message,
+        link: `/admin/dashboard?dispatchBooking=${booking.id}`,
+      })
+    ),
+    adminDb.collection('bookings').doc(booking.id).update({
+      adminNotifiedAfter50At: new Date().toISOString(),
+    }).catch(() => {}),
+  ]);
+}
 
 // ========================
 // PAYMENT MODULE (NO CARD/PIN STORAGE; SIGNED WEBHOOK VERIFICATION)
@@ -80,10 +150,15 @@ async function processVerifiedPaymentWebhook(payload: {
     verifiedAt: now,
   });
 
+  const bSnapBefore = await adminDb.collection('bookings').doc(payment.bookingId).get();
+  const bBefore = (bSnapBefore.data() || {}) as BookingRecord;
+
   // Update booking status automatically AFTER verified webhook
   await adminDb.collection('bookings').doc(payment.bookingId).update({
     status: 'confirmed_paid',
     paymentStatus: 'paid',
+    remainingDueBdt: 0,
+    advanceStatus: 'paid',
     updatedAt: now,
   });
 
@@ -122,6 +197,9 @@ async function processVerifiedPaymentWebhook(payload: {
       details: `Verified HMAC-SHA256 webhook for ${payment.transactionId} (${payment.gateway}, BDT ${payment.amountBdt}, mode ${payment.mode}).`,
       severity: 'info',
     }),
+    ...(bSnapBefore.exists
+      ? [notifyAdminsOnAdvancePaymentEvent({ booking: bBefore, payment, phase: 'verified' })]
+      : []),
   ]);
 
   return { alreadyProcessed: false, payment: { ...payment, status: 'verified_paid', webhookVerified: true } };
@@ -403,6 +481,13 @@ paymentsAdminRouter.post(
 
       const now = new Date().toISOString();
       await payRef.update(updatePayload);
+      const nextAdminLocStatus =
+        bData.adminLocationStatus && bData.adminLocationStatus !== 'not_requested'
+          ? bData.adminLocationStatus
+          : bData.customerLiveLocation
+            ? 'customer_shared'
+            : 'customer_location_requested';
+
       await bRef.update({
         status:
           bData.status === 'requested' || bData.status === 'accepted_awaiting_agreement'
@@ -410,6 +495,7 @@ paymentsAdminRouter.post(
             : 'payment_pending',
         advanceStatus: payment.paymentStage === 'advance_50' ? 'pending_verification' : (bData.advanceStatus || 'unpaid'),
         paymentStatus: bData.paymentStatus === 'advance_paid' ? 'advance_paid' : 'pending',
+        adminLocationStatus: nextAdminLocStatus,
         updatedAt: now,
       });
 
@@ -433,6 +519,11 @@ paymentsAdminRouter.post(
               ? `গ্রাহক ${modeTextBn} পদ্ধতিতে (${payment.equivalentItemLabel || formatBdtFallback(payment.amountBdt)}) বেনসন সিগারেটের ছবিসহ প্রমাণ (${trxId}) জমা দিয়েছেন। অ্যাডমিন যাচাইয়ের অপেক্ষায়।`
               : `Customer submitted TrxID ${trxId} for BDT ৳${payment.amountBdt.toLocaleString()}. Pending Finance Admin verification.`,
           link: '/dashboard/companion',
+        }),
+        notifyAdminsOnAdvancePaymentEvent({
+          booking: bData,
+          payment: { ...payment, ...updatePayload } as PaymentRecord,
+          phase: 'submitted',
         }),
         writeAuditLog({
           actorUid: req.authUser!.uid,
@@ -528,11 +619,20 @@ paymentsAdminRouter.post(
         : Number(booking.advancePaidBdt || 0) + payment.amountBdt;
       const remainingDueBdt = Math.max(0, totalAgreed - nextAdvancePaid);
 
+      const nextLocStatusOnVerify =
+        booking.adminLocationStatus === 'admin_dispatched'
+          ? 'admin_dispatched'
+          : booking.customerLiveLocation
+            ? 'customer_shared'
+            : 'customer_location_requested';
+
       await bRef.update({
         advancePaidBdt: nextAdvancePaid,
         remainingDueBdt,
         advanceStatus: 'paid',
         paymentStatus: remainingDueBdt === 0 ? 'paid' : 'advance_paid',
+        adminLocationStatus: nextLocStatusOnVerify,
+        locationRequestedAt: booking.customerLiveLocation ? booking.locationRequestedAt : now,
         status:
           remainingDueBdt === 0 || booking.companionAgreed
             ? 'confirmed_paid'
@@ -550,13 +650,27 @@ paymentsAdminRouter.post(
         });
       }
 
+      const sysMsgId = `MSG_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
+      await adminDb.collection('booking_messages').doc(sysMsgId).set({
+        id: sysMsgId,
+        bookingId: booking.id,
+        senderUid: 'system_admin_dispatch',
+        senderName: 'LOGEASI পেমেন্ট নিশ্চিতকরণ',
+        body: booking.customerLiveLocation
+          ? `৫০% অ্যাডভান্স পেমেন্ট (৳${payment.amountBdt.toLocaleString()}) যাচাই সম্পন্ন হয়েছে। কাস্টমারের লাইভ লোকেশন সঙ্গীর সাথে শেয়ার করা হয়েছে — এখন সরাসরি আলাপ-আলোচনা করুন। (অ্যাডমিন শুধুমাত্র পর্যবেক্ষণ করবেন)`
+          : `৫০% অ্যাডভান্স পেমেন্ট (৳${payment.amountBdt.toLocaleString()}) যাচাই সম্পন্ন হয়েছে। এখন ম্যাপ থেকে সরাসরি আপনার সঙ্গীর সাথে লাইভ লোকেশন শেয়ার করুন এবং চ্যাটে আলাপ-আলোচনা করুন।`,
+        createdAt: now,
+      });
+
       await Promise.all([
         createNotification({
           userUid: payment.customerUid,
           type: 'payment_confirmed',
-          title: `Personal ${payment.gateway.toUpperCase()} Verified (${payment.transactionId})`,
-          message: `TrxID ${payment.senderReferenceTrxId || ''} verified for BDT ৳${payment.amountBdt.toLocaleString()}. Booking is confirmed.`,
-          link: '/bookings',
+          title: `৫০% পেমেন্ট নিশ্চিত (${payment.transactionId}) — সঙ্গীর সাথে লোকেশন ও আলোচনা`,
+          message: booking.customerLiveLocation
+            ? `আপনার BDT ৳${payment.amountBdt.toLocaleString()} পেমেন্ট নিশ্চিত হয়েছে। এখন সঙ্গীর সাথে সরাসরি আলাপ-আলোচনা করুন ও লোকেশন আপডেট রাখুন।`
+            : `আপনার BDT ৳${payment.amountBdt.toLocaleString()} পেমেন্ট নিশ্চিত হয়েছে। বুকিং পেজ থেকে সরাসরি আপনার সঙ্গীকে লাইভ লোকেশন শেয়ার করুন ও কথা বলুন।`,
+          link: `/bookings?bookingId=${booking.id}`,
         }),
         createNotification({
           userUid: payment.companionUid,
@@ -564,6 +678,11 @@ paymentsAdminRouter.post(
           title: `Booking Confirmed & Paid (${payment.transactionId})`,
           message: `Personal ${payment.gateway.toUpperCase()} payment verified. Net earnings BDT ৳${payment.companionNetBdt.toLocaleString()} held in escrow.`,
           link: '/dashboard/companion',
+        }),
+        notifyAdminsOnAdvancePaymentEvent({
+          booking,
+          payment,
+          phase: 'verified',
         }),
         writeAuditLog({
           actorUid: req.authUser!.uid,
@@ -845,7 +964,8 @@ paymentsAdminRouter.get(
       const snap = await adminDb.collection('users').get();
       const users = snap.docs
         .map((d) => d.data())
-        .filter((u) => ['customer', 'companion'].includes(u.role));
+        .filter((u) => ['customer', 'companion'].includes(u.role))
+        .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
       res.json({ users });
     } catch (err) {
       res.status(500).json({ error: 'Unable to list users.' });
@@ -872,7 +992,35 @@ paymentsAdminRouter.post(
         return res.status(403).json({ error: guard.reason });
       }
 
-      await adminDb.collection('users').doc(targetUid).update({ status });
+      const userRef = adminDb.collection('users').doc(targetUid);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: 'User account not found.' });
+      }
+
+      const now = new Date().toISOString();
+      await userRef.update({ status, updatedAt: now });
+
+      const cmpRef = adminDb.collection('companion_profiles').doc(targetUid);
+      const cmpSnap = await cmpRef.get();
+      if (cmpSnap.exists) {
+        await cmpRef.update({
+          isAvailableNow: status === 'active',
+          updatedAt: now,
+        });
+      }
+
+      await createNotification({
+        userUid: targetUid,
+        type: 'account_status_update',
+        title: status === 'suspended' ? 'অ্যাকাউন্ট সাময়িকভাবে স্থগিত' : 'অ্যাকাউন্ট পুনরায় সক্রিয় হয়েছে',
+        message:
+          status === 'suspended'
+            ? 'অ্যাডমিন আপনার অ্যাকাউন্ট সাময়িকভাবে স্থগিত করেছেন। সহায়তার জন্য সাপোর্টে যোগাযোগ করুন।'
+            : 'অ্যাডমিন আপনার অ্যাকাউন্ট পুনরায় সক্রিয় করেছেন। এখন সব ফিচার ব্যবহার করতে পারবেন।',
+        link: userSnap.data()?.role === 'companion' ? '/dashboard/companion' : '/dashboard/customer',
+      });
+
       await writeAuditLog({
         actorUid: req.authUser!.uid,
         actorRole: req.authUser!.role,
@@ -885,7 +1033,82 @@ paymentsAdminRouter.post(
 
       res.json({ uid: targetUid, status });
     } catch (err) {
+      console.error('Update user status error:', err);
       res.status(500).json({ error: 'Failed to update user status.' });
+    }
+  }
+);
+
+// Direct 18+ Adult / Companion Verification Control from User Control Table
+paymentsAdminRouter.post(
+  '/admin/users/:uid/verify-adult',
+  requireAdmin,
+  requirePermission('approve_verifications'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const targetUid = sanitizeId(req.params.uid);
+      const decision: 'approved' | 'rejected' =
+        req.body?.decision === 'rejected' ? 'rejected' : 'approved';
+      const approved = decision === 'approved';
+
+      const userRef = adminDb.collection('users').doc(targetUid);
+      const userSnap = await userRef.get();
+      if (!userSnap.exists) {
+        return res.status(404).json({ error: 'User account not found.' });
+      }
+      const now = new Date().toISOString();
+
+      await userRef.update({
+        isAdultVerified18Plus: approved,
+        verificationStatus: decision,
+        updatedAt: now,
+      });
+
+      const cmpRef = adminDb.collection('companion_profiles').doc(targetUid);
+      const cmpSnap = await cmpRef.get();
+      if (cmpSnap.exists) {
+        await cmpRef.update({
+          verificationStatus: decision,
+          updatedAt: now,
+        });
+      }
+
+      const verSnap = await adminDb
+        .collection('verification_requests')
+        .where('uid', '==', targetUid)
+        .get();
+      for (const d of verSnap.docs) {
+        await d.ref.update({
+          status: decision,
+          reviewedByUid: req.authUser!.uid,
+          reviewerNote: `অ্যাডমিন প্যানেল থেকে সরাসরি ${approved ? 'অনুমোদিত' : 'বাতিল'}`,
+        });
+      }
+
+      await createNotification({
+        userUid: targetUid,
+        type: 'verification_update',
+        title: `১৮+ পরিচয় যাচাই ${approved ? 'অনুমোদিত' : 'বাতিল'}`,
+        message: approved
+          ? 'অ্যাডমিন আপনার ১৮+ পরিচয় যাচাই অনুমোদন করেছেন। আপনার ভেরিফায়েড স্ট্যাটাস এখন সক্রিয়।'
+          : 'অ্যাডমিন আপনার ১৮+ পরিচয় যাচাই স্থগিত/বাতিল করেছেন।',
+        link: cmpSnap.exists ? '/dashboard/companion' : '/dashboard/customer',
+      });
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: `USER_VERIFICATION_${decision.toUpperCase()}`,
+        targetType: 'user',
+        targetId: targetUid,
+        details: `Admin set 18+ verification status for ${targetUid} to ${decision}.`,
+        severity: 'info',
+      });
+
+      res.json({ uid: targetUid, isAdultVerified18Plus: approved, verificationStatus: decision });
+    } catch (err) {
+      console.error('Direct verify-adult error:', err);
+      res.status(500).json({ error: '১৮+ ভেরিফিকেশন আপডেট করা যায়নি।' });
     }
   }
 );
@@ -900,7 +1123,12 @@ paymentsAdminRouter.get(
       const snap = await adminDb.collection('verification_requests').get();
       const list = snap.docs
         .map((d) => d.data())
-        .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        .sort((a, b) => {
+          const ap = a.status === 'pending' ? 0 : 1;
+          const bp = b.status === 'pending' ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          return String(b.createdAt).localeCompare(String(a.createdAt));
+        });
       res.json({ verifications: list });
     } catch (err) {
       res.status(500).json({ error: 'Failed to load verification requests.' });
@@ -922,31 +1150,43 @@ paymentsAdminRouter.post(
       const snap = await ref.get();
       if (!snap.exists) return res.status(404).json({ error: 'Verification request not found.' });
       const ver = snap.data()!;
+      const now = new Date().toISOString();
 
       await ref.update({
         status: decision,
         reviewerNote,
         reviewedByUid: req.authUser!.uid,
+        reviewedAt: now,
       });
+
+      const targetUserRef = adminDb.collection('users').doc(ver.uid);
+      const targetUserSnap = await targetUserRef.get();
+      if (targetUserSnap.exists) {
+        await targetUserRef.update({
+          isAdultVerified18Plus: decision === 'approved',
+          verificationStatus: decision,
+          updatedAt: now,
+        });
+      }
 
       const cmpRef = adminDb.collection('companion_profiles').doc(ver.uid);
       const cmpSnap = await cmpRef.get();
       if (cmpSnap.exists) {
         await cmpRef.update({
           verificationStatus: decision,
-          updatedAt: new Date().toISOString(),
+          updatedAt: now,
         });
       }
 
       await createNotification({
         userUid: ver.uid,
         type: 'verification_update',
-        title: `Identity Verification ${decision === 'approved' ? 'Approved' : 'Rejected'}`,
+        title: `১৮+ পরিচয় যাচাই ${decision === 'approved' ? 'অনুমোদিত' : 'বাতিল'}`,
         message:
           decision === 'approved'
-            ? 'Your 18+ identity verification is approved. Your verified status is now active on LOGEASI.COM.'
-            : `Your verification request was declined: ${reviewerNote || 'Document unclear.'}`,
-        link: '/dashboard/companion',
+            ? 'আপনার ১৮+ পরিচয় যাচাই অনুমোদন করা হয়েছে। এখন আপনার ভেরিফায়েড ব্যাজ চালু রয়েছে।'
+            : `আপনার ভেরিফিকেশন আবেদন বাতিল করা হয়েছে: ${reviewerNote || 'ডকুমেন্ট স্পষ্ট নয়।'}`,
+        link: cmpSnap.exists ? '/dashboard/companion' : '/dashboard/customer',
       });
 
       await writeAuditLog({
@@ -959,8 +1199,9 @@ paymentsAdminRouter.post(
         severity: 'info',
       });
 
-      res.json({ id, status: decision });
+      res.json({ id, status: decision, uid: ver.uid });
     } catch (err) {
+      console.error('Review verification error:', err);
       res.status(500).json({ error: 'Failed to review verification.' });
     }
   }
@@ -981,6 +1222,92 @@ paymentsAdminRouter.get(
     } catch (err) {
       res.status(500).json({ error: 'Failed to load bookings.' });
     }
+  }
+);
+
+paymentsAdminRouter.patch(
+  '/admin/bookings/:id/status',
+  requireAdmin,
+  requirePermission('manage_bookings'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = sanitizeId(req.params.id);
+      const nextStatus = sanitizeString(req.body?.status, 60);
+      const allowedStatuses = [
+        'requested',
+        'accepted_awaiting_agreement',
+        'price_agreed_awaiting_payment',
+        'payment_pending',
+        'confirmed_paid',
+        'in_progress',
+        'completed',
+        'cancelled',
+        'disputed',
+      ];
+      if (!allowedStatuses.includes(nextStatus)) {
+        return res.status(400).json({ error: 'Invalid booking status.' });
+      }
+      const ref = adminDb.collection('bookings').doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'Booking not found.' });
+      const bkg = snap.data()!;
+
+      await ref.update({ status: nextStatus, updatedAt: new Date().toISOString() });
+
+      await Promise.all([
+        createNotification({
+          userUid: bkg.customerUid,
+          type: 'booking_update',
+          title: `বুকিং ${bkg.bookingCode} স্ট্যাটাস আপডেট`,
+          message: `অ্যাডমিন আপনার বুকিংয়ের অবস্থা "${nextStatus}"-এ হালনাগাদ করেছেন।`,
+          link: '/dashboard/customer',
+        }),
+        createNotification({
+          userUid: bkg.companionUid,
+          type: 'booking_update',
+          title: `বুকিং ${bkg.bookingCode} স্ট্যাটাস আপডেট`,
+          message: `অ্যাডমিন বুকিংয়ের অবস্থা "${nextStatus}"-এ হালনাগাদ করেছেন।`,
+          link: '/dashboard/companion',
+        }),
+      ]);
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'ADMIN_BOOKING_STATUS_UPDATED',
+        targetType: 'booking',
+        targetId: id,
+        details: `Updated booking ${bkg.bookingCode} status from ${bkg.status} to ${nextStatus}.`,
+        severity: 'warning',
+      });
+
+      res.json({ id, status: nextStatus });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to update booking status.' });
+    }
+  }
+);
+
+// Read-Only Safeguard: Customer & Companion manage Live Location & Discussion directly; Admin only observes.
+paymentsAdminRouter.post(
+  '/admin/bookings/:id/request-location',
+  requireAdmin,
+  async (_req: AuthenticatedRequest, res) => {
+    return res.status(403).json({
+      error:
+        'পর্যবেক্ষণ মোড (Read-Only): কাস্টমার সরাসরি সঙ্গীর সাথে লাইভ লোকেশন শেয়ার করবেন ও আলাপ-আলোচনা করবেন। অ্যাডমিনের এখানে কোনো এডিট বা ডিসপ্যাচ করার অপশন নেই।',
+    });
+  }
+);
+
+paymentsAdminRouter.post(
+  '/admin/bookings/:id/dispatch-location',
+  requireAdmin,
+  async (_req: AuthenticatedRequest, res) => {
+    return res.status(403).json({
+      error:
+        'পর্যবেক্ষণ মোড (Read-Only): কাস্টমার ও সঙ্গী নিজেরাই লাইভ লোকেশন ও মিটআপ ঠিক করবেন। অ্যাডমিন শুধুমাত্র দেখতে পারবেন।',
+    });
   }
 );
 
@@ -1495,6 +1822,7 @@ paymentsAdminRouter.patch(
         phone,
         customPermissions,
         regeneratePassword,
+        newPassword,
       } = req.body || {};
 
       if (role === 'root_super_admin') {
@@ -1576,7 +1904,28 @@ paymentsAdminRouter.patch(
       }
 
       let generatedPassword: string | undefined;
-      if (regeneratePassword === true) {
+      let passwordChanged = false;
+      if (typeof newPassword === 'string' && newPassword.trim().length > 0) {
+        if (newPassword.trim().length < 8) {
+          return res.status(400).json({ error: 'Admin password must be at least 8 characters.' });
+        }
+        const passwordHash = await hashPassword(newPassword.trim());
+        await adminDb
+          .collection('users')
+          .doc(targetUid)
+          .collection('private')
+          .doc('security')
+          .set(
+            {
+              uid: targetUid,
+              passwordHash,
+              failedLoginAttempts: 0,
+              lockedUntil: '',
+            },
+            { merge: true }
+          );
+        passwordChanged = true;
+      } else if (regeneratePassword === true) {
         generatedPassword = generateStrongRandomPassword(16);
         const passwordHash = await hashPassword(generatedPassword);
         await adminDb
@@ -1593,9 +1942,10 @@ paymentsAdminRouter.patch(
             },
             { merge: true }
           );
+        passwordChanged = true;
       }
 
-      if (Object.keys(adminUpdates).length === 0 && !generatedPassword) {
+      if (Object.keys(adminUpdates).length === 0 && !passwordChanged) {
         return res.status(400).json({ error: 'No valid administrator updates provided.' });
       }
 
@@ -1612,7 +1962,7 @@ paymentsAdminRouter.patch(
         action: generatedPassword ? 'ADMIN_PASSWORD_REGENERATED' : 'ADMIN_UPDATED',
         targetType: 'admin_account',
         targetId: targetUid,
-        details: `Updated admin ${targetUid}: ${JSON.stringify(adminUpdates)}${generatedPassword ? ' (+ password rotated)' : ''}`,
+        details: `Updated admin ${targetUid}: ${JSON.stringify(adminUpdates)}${passwordChanged ? ' (+ password updated)' : ''}`,
         severity: 'warning',
       });
 
@@ -1742,7 +2092,7 @@ paymentsAdminRouter.put(
           maxCashBookingBdt,
           bkashPersonalNumber,
           nagadPersonalNumber,
-          allowedDivision: 'Dhaka Division',
+          allowedDivision: 'সকল বাংলাদেশ বিভাগ (All 8 Divisions)',
           updatedAt: new Date().toISOString(),
         },
         { merge: true }
@@ -1834,11 +2184,110 @@ paymentsAdminRouter.get(
   }
 );
 
+paymentsAdminRouter.post(
+  '/admin/change-password',
+  requireAdmin,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const currentPassword = typeof req.body?.currentPassword === 'string' ? req.body.currentPassword : '';
+      const newPassword = typeof req.body?.newPassword === 'string' ? req.body.newPassword : '';
+
+      if (!currentPassword || !newPassword) {
+        return res.status(400).json({ error: 'বর্তমান এবং নতুন পাসওয়ার্ড উভয়ই প্রয়োজন।' });
+      }
+      if (newPassword.length < 10 || newPassword.length > 128) {
+        return res.status(400).json({ error: 'নতুন পাসওয়ার্ড কমপক্ষে ১০ অক্ষরের হতে হবে।' });
+      }
+      if (newPassword === currentPassword) {
+        return res.status(400).json({ error: 'নতুন পাসওয়ার্ড অবশ্যই বর্তমান পাসওয়ার্ড থেকে আলাদা হতে হবে।' });
+      }
+
+      const uid = req.authUser!.uid;
+      const privRef = adminDb.collection('users').doc(uid).collection('private').doc('security');
+      const privSnap = await privRef.get();
+      const privData = privSnap.data() || {};
+      const existingHash = typeof privData.passwordHash === 'string' ? privData.passwordHash : '';
+
+      if (!existingHash || !(await verifyPassword(currentPassword, existingHash))) {
+        return res.status(401).json({ error: 'বর্তমান পাসওয়ার্ড সঠিক নয়।' });
+      }
+
+      const passwordHash = await hashPassword(newPassword);
+      await privRef.set(
+        {
+          uid,
+          passwordHash,
+          failedLoginAttempts: 0,
+          lockedUntil: '',
+          passwordUpdatedAt: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+      await writeAuditLog({
+        actorUid: uid,
+        actorRole: req.authUser!.role,
+        action: 'ADMIN_PASSWORD_CHANGED',
+        targetType: 'admin_account',
+        targetId: uid,
+        details: 'Admin changed their own login password via Security Dashboard.',
+        severity: 'critical',
+      });
+
+      res.json({ updated: true });
+    } catch (err) {
+      console.error('Admin password change error:', err);
+      res.status(500).json({ error: 'পাসওয়ার্ড পরিবর্তন করা যায়নি।' });
+    }
+  }
+);
+
+paymentsAdminRouter.post(
+  '/admin/security/rotate-secrets',
+  requireAdmin,
+  requireRootOwner,
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const { rotatedAt } = rotateRuntimeSecrets();
+      const sessionToken = signSessionToken({
+        uid: req.authUser!.uid,
+        email: req.authUser!.email,
+        role: req.authUser!.role,
+      });
+
+      const proto = String(req.headers['x-forwarded-proto'] || '').toLowerCase();
+      const isHttps = req.secure || proto.includes('https');
+      res.cookie('logeasi_session', sessionToken, {
+        httpOnly: true,
+        secure: isHttps,
+        sameSite: isHttps ? 'none' : 'lax',
+        maxAge: 1000 * 60 * 60 * 12,
+        path: '/',
+      });
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'SECURITY_SECRETS_ROTATED',
+        targetType: 'platform_security',
+        targetId: 'runtime-secrets',
+        details: 'Root Super Admin rotated runtime session and webhook signing secrets; prior tokens invalidated.',
+        severity: 'critical',
+      });
+
+      res.json({ rotated: true, rotatedAt, sessionToken });
+    } catch (err) {
+      console.error('Secret rotation error:', err);
+      res.status(500).json({ error: 'সেশন ও ওয়েবহুক সিক্রেট রোটেট করা যায়নি।' });
+    }
+  }
+);
+
 // Admin Companion Directory & Contact Power Controls
 paymentsAdminRouter.get(
   '/admin/companions',
   requireAdmin,
-  requirePermission('manage_customers'),
+  requireAnyPermission(['manage_companions', 'manage_customers']),
   async (_req, res) => {
     try {
       const snap = await adminDb.collection('companion_profiles').get();
@@ -1855,7 +2304,7 @@ paymentsAdminRouter.get(
 paymentsAdminRouter.patch(
   '/admin/companions/:uid',
   requireAdmin,
-  requirePermission('manage_customers'),
+  requireAnyPermission(['manage_companions', 'manage_customers']),
   async (req: AuthenticatedRequest, res) => {
     try {
       const targetUid = sanitizeId(req.params.uid);
@@ -1907,11 +2356,17 @@ paymentsAdminRouter.patch(
       }
 
       await ref.update(updates);
-      if (updates.photoUrl !== undefined) {
-        const userRef = adminDb.collection('users').doc(targetUid);
-        const userSnap = await userRef.get();
-        if (userSnap.exists) {
-          await userRef.update({ photoUrl: updates.photoUrl });
+      const userRef = adminDb.collection('users').doc(targetUid);
+      const userSnap = await userRef.get();
+      if (userSnap.exists) {
+        const userSync: Record<string, any> = {};
+        if (updates.photoUrl !== undefined) userSync.photoUrl = updates.photoUrl;
+        if (updates.verificationStatus !== undefined) {
+          userSync.verificationStatus = updates.verificationStatus;
+          userSync.isAdultVerified18Plus = updates.verificationStatus === 'approved';
+        }
+        if (Object.keys(userSync).length > 0) {
+          await userRef.update(userSync);
         }
       }
 
@@ -1933,3 +2388,446 @@ paymentsAdminRouter.patch(
     }
   }
 );
+
+// ========================
+// ADMIN COMPANION APPLICATIONS, CREATION & WHATSAPP PAYOUT SETTLEMENT
+// ========================
+
+async function provisionCompanionAccountFromAdmin(params: {
+  fullName: string;
+  emailInput?: string;
+  passwordInput?: string;
+  whatsappNumber: string;
+  city: string;
+  division: string;
+  gender: 'male' | 'female';
+  dateOfBirth: string;
+  hourlyRateBdt: number;
+  sessionRateBdt: number;
+  headline: string;
+  bio: string;
+  instagramHandle?: string;
+  photoUrl?: string;
+}): Promise<{ user: UserAccount; profile: CompanionProfile; email: string; issuedPassword: string }> {
+  const randomSlug = crypto.randomBytes(3).toString('hex');
+  const cleanEmail = sanitizeString(
+    params.emailInput || `companion.${randomSlug}@logeasi.com`,
+    200
+  ).toLowerCase();
+
+  const dup = await adminDb.collection('users').where('email', '==', cleanEmail).limit(1).get();
+  if (!dup.empty) {
+    throw Object.assign(new Error(`ইমেইল ${cleanEmail} ইতিমধ্যেই ব্যবহৃত হচ্ছে। অন্য একটি ইমেইল দিন।`), {
+      statusCode: 409,
+    });
+  }
+
+  const rawPw = (params.passwordInput || '').trim();
+  const issuedPassword = rawPw.length >= 6 ? rawPw : generateStrongRandomPassword(12);
+  const passwordHash = await hashPassword(issuedPassword);
+
+  const uid = `cmp_${crypto.randomBytes(8).toString('hex')}`;
+  const now = new Date().toISOString();
+
+  const newUser: UserAccount = {
+    uid,
+    email: cleanEmail,
+    phone: params.whatsappNumber,
+    fullName: params.fullName,
+    role: 'companion',
+    isAdultVerified18Plus: true,
+    verificationStatus: 'approved',
+    phoneVerified: Boolean(params.whatsappNumber),
+    emailVerified: true,
+    twoFactorEnabled: false,
+    status: 'active',
+    photoUrl: params.photoUrl || '',
+    city: params.city,
+    gender: params.gender,
+    profileCompleted: true,
+    profileUpdatedAt: now,
+    referralCreditsBdt: 0,
+    referralCount: 0,
+    createdAt: now,
+  };
+
+  await adminDb.collection('users').doc(uid).set(newUser);
+  const refMeta = await ensureUserReferralCode(newUser);
+  newUser.referralCode = refMeta.referralCode;
+
+  await adminDb.collection('users').doc(uid).collection('private').doc('security').set({
+    uid,
+    dateOfBirth: encryptSensitive(params.dateOfBirth || '1997-01-01'),
+    passwordHash,
+    failedLoginAttempts: 0,
+    lastLoginAt: '',
+  });
+
+  const profile: CompanionProfile = {
+    uid,
+    displayName: params.fullName,
+    headline: params.headline || 'যাচাইকৃত সামাজিক সঙ্গী · অ্যাডমিন অনুমোদিত',
+    bio:
+      params.bio ||
+      'অ্যাডমিন দ্বারা যাচাইকৃত ও অনুমোদিত সামাজিক সঙ্গী। পাবলিক স্থানে নিরাপদ ও সম্মানজনক আড্ডা এবং ভ্রমণ সহায়তার জন্য বুকিং করুন।',
+    city: params.city,
+    division: params.division,
+    gender: params.gender,
+    areas: [params.city],
+    languages: ['Bengali', 'English'],
+    categories: ['টং এর আড্ডার রাজা (টং চা ও গল্প)', 'ঘোরা ফেরা ও শহর ভ্রমণ'],
+    interests: ['Tea', 'Travel', 'Dining', 'Photography'],
+    skills: ['Friendly Conversation', 'City Guide', 'Event Hosting'],
+    hourlyRateBdt: Math.max(500, Number(params.hourlyRateBdt || 1500)),
+    sessionRateBdt: Math.max(1000, Number(params.sessionRateBdt || 4200)),
+    availabilityDays: ['Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'],
+    availabilityHours: '10:00 AM – 9:00 PM',
+    isAvailableNow: true,
+    verificationStatus: 'approved',
+    ratingAvg: 5,
+    reviewCount: 0,
+    completedBookings: 0,
+    pendingBalanceBdt: 0,
+    availableBalanceBdt: 0,
+    photoUrl: params.photoUrl || '',
+    instagramHandle: params.instagramHandle || '',
+    whatsappNumber: params.whatsappNumber,
+    contactEmail: cleanEmail,
+    updatedAt: now,
+  };
+
+  await adminDb.collection('companion_profiles').doc(uid).set(profile);
+  return { user: newUser, profile, email: cleanEmail, issuedPassword };
+}
+
+paymentsAdminRouter.get(
+  '/admin/companion-applications',
+  requireAdmin,
+  requireAnyPermission(['approve_verifications', 'manage_companions', 'manage_customers']),
+  async (_req, res) => {
+    try {
+      const snap = await adminDb.collection('companion_applications').get();
+      const applications = snap.docs
+        .map((d) => d.data())
+        .sort((a, b) => {
+          const ap = a.status === 'pending' ? 0 : 1;
+          const bp = b.status === 'pending' ? 0 : 1;
+          if (ap !== bp) return ap - bp;
+          return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+        });
+      res.json({ applications });
+    } catch (err) {
+      res.status(500).json({ error: 'সঙ্গী আবেদন তালিকা লোড করা যায়নি।' });
+    }
+  }
+);
+
+paymentsAdminRouter.post(
+  '/admin/companion-applications/:id/approve-create',
+  requireAdmin,
+  requireAnyPermission(['approve_verifications', 'manage_companions', 'manage_customers']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = sanitizeId(req.params.id);
+      const ref = adminDb.collection('companion_applications').doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'আবেদনটি পাওয়া যায়নি।' });
+
+      const app = snap.data() as CompanionApplicationRecord;
+      if (app.status === 'approved' && app.issuedUid) {
+        return res.status(409).json({
+          error: `এই আবেদনের বিপরীতে ইতিমধ্যেই সঙ্গী অ্যাকাউন্ট (${app.issuedEmail}) তৈরি হয়েছে।`,
+        });
+      }
+
+      const requestedEmail = sanitizeString(req.body?.email || app.contactEmail || '', 200).toLowerCase();
+      const requestedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+      const hourlyRateBdt = Math.max(500, Number(req.body?.hourlyRateBdt || app.hourlyRateBdt || 1500));
+      const sessionRateBdt = Math.max(1000, Number(req.body?.sessionRateBdt || app.sessionRateBdt || 4200));
+      const adminNote = sanitizeString(req.body?.adminNote || 'অ্যাডমিন দ্বারা অনুমোদিত ও WhatsApp-এ হস্তান্তরিত', 400);
+
+      const provisioned = await provisionCompanionAccountFromAdmin({
+        fullName: app.fullName,
+        emailInput: requestedEmail,
+        passwordInput: requestedPassword,
+        whatsappNumber: app.whatsappNumber,
+        city: app.city,
+        division: app.division,
+        gender: app.gender,
+        dateOfBirth: app.dateOfBirth,
+        hourlyRateBdt,
+        sessionRateBdt,
+        headline: app.headline,
+        bio: app.bio,
+        instagramHandle: app.instagramHandle,
+        photoUrl: app.photoUrl,
+      });
+
+      const now = new Date().toISOString();
+      await ref.update({
+        status: 'approved',
+        adminNote,
+        issuedUid: provisioned.user.uid,
+        issuedEmail: provisioned.email,
+        reviewedByUid: req.authUser!.uid,
+        updatedAt: now,
+      });
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'COMPANION_APPLICATION_APPROVED_ACCOUNT_CREATED',
+        targetType: 'companion_application',
+        targetId: id,
+        details: `Approved ${app.fullName} (${app.whatsappNumber}) -> created companion ${provisioned.email}.`,
+        severity: 'warning',
+      });
+
+      res.status(201).json({
+        applicationId: id,
+        companionUid: provisioned.user.uid,
+        fullName: app.fullName,
+        whatsappNumber: app.whatsappNumber,
+        email: provisioned.email,
+        issuedPassword: provisioned.issuedPassword,
+      });
+    } catch (err: any) {
+      const code = Number(err?.statusCode) || 500;
+      res.status(code).json({ error: err?.message || 'সঙ্গী অ্যাকাউন্ট তৈরি করা যায়নি।' });
+    }
+  }
+);
+
+paymentsAdminRouter.post(
+  '/admin/companion-applications/:id/reject',
+  requireAdmin,
+  requireAnyPermission(['approve_verifications', 'manage_companions', 'manage_customers']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = sanitizeId(req.params.id);
+      const adminNote = sanitizeString(req.body?.adminNote || 'আবেদনটি অ্যাডমিন দ্বারা প্রত্যাখ্যান করা হয়েছে।', 400);
+      const ref = adminDb.collection('companion_applications').doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'আবেদনটি পাওয়া যায়নি।' });
+
+      await ref.update({
+        status: 'rejected',
+        adminNote,
+        reviewedByUid: req.authUser!.uid,
+        updatedAt: new Date().toISOString(),
+      });
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'COMPANION_APPLICATION_REJECTED',
+        targetType: 'companion_application',
+        targetId: id,
+        details: adminNote,
+        severity: 'info',
+      });
+
+      res.json({ id, status: 'rejected' });
+    } catch (err) {
+      res.status(500).json({ error: 'আবেদন বাতিল করা যায়নি।' });
+    }
+  }
+);
+
+// Direct Admin Companion Creation (without waiting for an application)
+paymentsAdminRouter.post(
+  '/admin/companions/create',
+  requireAdmin,
+  requireAnyPermission(['manage_companions', 'manage_customers', 'approve_verifications']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const fullName = sanitizeString(req.body?.fullName, 120);
+      const whatsappNumber = sanitizeString(req.body?.whatsappNumber, 40);
+      const emailInput = sanitizeString(req.body?.email || '', 200).toLowerCase();
+      const passwordInput = typeof req.body?.password === 'string' ? req.body.password : '';
+      const city = sanitizeString(req.body?.city || 'Dhaka', 80);
+      const division = sanitizeString(req.body?.division || 'Dhaka', 80);
+      const gender: 'male' | 'female' = req.body?.gender === 'female' ? 'female' : 'male';
+      const dateOfBirth = sanitizeString(req.body?.dateOfBirth || '1997-05-15', 20);
+      const hourlyRateBdt = Math.max(500, Number(req.body?.hourlyRateBdt || 1500));
+      const sessionRateBdt = Math.max(1000, Number(req.body?.sessionRateBdt || 4200));
+      const headline = sanitizeString(req.body?.headline || 'যাচাইকৃত সামাজিক সঙ্গী', 180);
+      const bio = sanitizeString(req.body?.bio || '', 1000);
+      const instagramHandle = sanitizeString(req.body?.instagramHandle || '', 120);
+      let photoUrl = '';
+      if (req.body?.photoUrl) {
+        const clean = sanitizePhotoData(req.body.photoUrl);
+        if (clean) photoUrl = clean;
+      }
+
+      if (!fullName || !whatsappNumber) {
+        return res.status(400).json({ error: 'সঙ্গীর নাম ও WhatsApp নম্বর দিন।' });
+      }
+      if (calculateAgeFromDob(dateOfBirth) < 18) {
+        return res.status(400).json({ error: 'সঙ্গীর বয়স অবশ্যই ১৮+ হতে হবে।' });
+      }
+
+      const provisioned = await provisionCompanionAccountFromAdmin({
+        fullName,
+        emailInput,
+        passwordInput,
+        whatsappNumber,
+        city,
+        division,
+        gender,
+        dateOfBirth,
+        hourlyRateBdt,
+        sessionRateBdt,
+        headline,
+        bio,
+        instagramHandle,
+        photoUrl,
+      });
+
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'ADMIN_CREATED_COMPANION_ACCOUNT',
+        targetType: 'companion_profile',
+        targetId: provisioned.user.uid,
+        details: `Admin created companion account ${provisioned.email} for ${fullName} (${whatsappNumber}).`,
+        severity: 'warning',
+      });
+
+      res.status(201).json({
+        companionUid: provisioned.user.uid,
+        fullName,
+        whatsappNumber,
+        email: provisioned.email,
+        issuedPassword: provisioned.issuedPassword,
+      });
+    } catch (err: any) {
+      const code = Number(err?.statusCode) || 500;
+      res.status(code).json({ error: err?.message || 'সরাসরি সঙ্গী অ্যাকাউন্ট তৈরি করা যায়নি।' });
+    }
+  }
+);
+
+// Admin Settles / Sends Companion Money directly via WhatsApp / bKash / Nagad after collecting payment
+paymentsAdminRouter.post(
+  '/admin/companions/:uid/settle-whatsapp',
+  requireAdmin,
+  requireAnyPermission(['manage_payments', 'review_payouts', 'manage_companions']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const companionUid = sanitizeId(req.params.uid);
+      const cmpRef = adminDb.collection('companion_profiles').doc(companionUid);
+      const cmpSnap = await cmpRef.get();
+      if (!cmpSnap.exists) return res.status(404).json({ error: 'সঙ্গী প্রোফাইল পাওয়া যায়নি।' });
+      const cmp = cmpSnap.data() as CompanionProfile;
+
+      const available = Math.max(0, Number(cmp.availableBalanceBdt || 0));
+      const pending = Math.max(0, Number(cmp.pendingBalanceBdt || 0));
+      const maxSettleable = available + pending;
+      const requestedAmount = req.body?.amountBdt ? Math.round(Number(req.body.amountBdt)) : available || maxSettleable;
+
+      if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+        return res.status(400).json({
+          error: 'এই সঙ্গীর জন্য কোনো বকেয়া/পরিশোধযোগ্য ব্যালেন্স নেই অথবা সঠিক পরিমাণ লিখুন।',
+        });
+      }
+      if (requestedAmount > maxSettleable) {
+        return res.status(400).json({
+          error: `সর্বোচ্চ ৳${maxSettleable.toLocaleString()} পর্যন্ত পরিশোধ রেকর্ড করা যাবে।`,
+        });
+      }
+
+      const deductFromAvailable = Math.min(available, requestedAmount);
+      const deductFromPending = Math.max(0, requestedAmount - deductFromAvailable);
+      const nextAvailable = available - deductFromAvailable;
+      const nextPending = Math.max(0, pending - deductFromPending);
+
+      const now = new Date().toISOString();
+      const note = sanitizeString(
+        req.body?.note || `WhatsApp (${cmp.whatsappNumber || 'N/A'}) যোগাযোগের মাধ্যমে অ্যাডমিন দ্বারা টাকা হস্তান্তরিত।`,
+        300
+      );
+      const payoutId = `PYT_WA_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`;
+      const maskedPhone = cmp.whatsappNumber
+        ? `${'*'.repeat(Math.max(4, cmp.whatsappNumber.length - 4))}${cmp.whatsappNumber.slice(-4)}`
+        : 'WhatsApp';
+
+      await cmpRef.update({
+        availableBalanceBdt: nextAvailable,
+        pendingBalanceBdt: nextPending,
+        updatedAt: now,
+      });
+
+      const payoutRecord = {
+        id: payoutId,
+        companionUid,
+        companionName: cmp.displayName,
+        amountBdt: requestedAmount,
+        method: 'whatsapp_handoff',
+        accountMasked: maskedPhone,
+        status: 'paid',
+        reviewedByUid: req.authUser!.uid,
+        adminNote: note,
+        createdAt: now,
+      };
+      await adminDb.collection('companion_payouts').doc(payoutId).set(payoutRecord);
+
+      await Promise.all([
+        createNotification({
+          userUid: companionUid,
+          type: 'payout_whatsapp_settled',
+          title: `অ্যাডমিন ৳${requestedAmount.toLocaleString()} পরিশোধ করেছেন`,
+          message: `${note} — আপনার সঙ্গী ড্যাশবোর্ডে বিস্তারিত দেখুন।`,
+          link: '/dashboard/companion',
+        }),
+        writeAuditLog({
+          actorUid: req.authUser!.uid,
+          actorRole: req.authUser!.role,
+          action: 'ADMIN_WHATSAPP_COMPANION_SETTLEMENT',
+          targetType: 'companion_payout',
+          targetId: payoutId,
+          details: `Settled BDT ${requestedAmount} to ${cmp.displayName} (${cmp.whatsappNumber || companionUid}) via WhatsApp/Admin handoff.`,
+          severity: 'info',
+        }),
+      ]);
+
+      res.json({
+        settled: true,
+        payout: payoutRecord,
+        availableBalanceBdt: nextAvailable,
+        pendingBalanceBdt: nextPending,
+      });
+    } catch (err) {
+      console.error('WhatsApp settle error:', err);
+      res.status(500).json({ error: 'সঙ্গীর টাকা হস্তান্তর রেকর্ড করা যায়নি।' });
+    }
+  }
+);
+
+paymentsAdminRouter.delete(
+  '/admin/companion-posts/:id',
+  requireAdmin,
+  requireAnyPermission(['manage_content', 'manage_companions']),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = sanitizeId(req.params.id);
+      const ref = adminDb.collection('companion_posts').doc(id);
+      const snap = await ref.get();
+      if (!snap.exists) return res.status(404).json({ error: 'পোস্ট খুঁজে পাওয়া যায়নি।' });
+      await ref.delete();
+      await writeAuditLog({
+        actorUid: req.authUser!.uid,
+        actorRole: req.authUser!.role,
+        action: 'ADMIN_DELETED_COMPANION_POST',
+        targetType: 'companion_post',
+        targetId: id,
+        details: `Admin removed companion post ${id}.`,
+        severity: 'warning',
+      });
+      res.json({ deleted: true, id });
+    } catch (err) {
+      res.status(500).json({ error: 'পোস্ট মুছে ফেলা যায়নি।' });
+    }
+  }
+);
+

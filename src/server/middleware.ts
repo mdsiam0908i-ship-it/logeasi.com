@@ -138,6 +138,24 @@ export function requirePermission(permission: string) {
   };
 }
 
+export function requireAnyPermission(allowedPermissions: string[]) {
+  return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    if (!req.authUser) {
+      return res.status(401).json({ error: 'Administrator authentication required.' });
+    }
+    if (req.authUser.isRootOwner || req.authUser.role === 'root_super_admin') {
+      return next();
+    }
+    const perms = req.authUser.permissions || [];
+    if (!allowedPermissions.some((p) => perms.includes(p))) {
+      return res.status(403).json({
+        error: `Forbidden: Missing required permission (${allowedPermissions.join(' or ')}).`,
+      });
+    }
+    next();
+  };
+}
+
 export function requireRootOwner(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   if (!req.authUser || !req.authUser.isRootOwner || req.authUser.role !== 'root_super_admin') {
     return res.status(403).json({

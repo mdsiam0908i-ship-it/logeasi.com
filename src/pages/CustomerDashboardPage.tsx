@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Lock, LogOut, PhoneCall, ShieldCheck, Star, UserCheck } from 'lucide-react';
+import { LocateFixed, Lock, LogOut, MapPin, Navigation, PhoneCall, ShieldCheck, Star, UserCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { BookingReviewCard } from '../components/BookingReviewCard.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
@@ -59,6 +59,7 @@ export function CustomerDashboardPage() {
   const [docNumber, setDocNumber] = useState('');
   const [dob, setDob] = useState('1996-05-10');
 
+  const [locBusyId, setLocBusyId] = useState<string>('');
   const [notice, setNotice] = useState('');
 
   const loadData = async () => {
@@ -204,6 +205,42 @@ export function CustomerDashboardPage() {
     } catch (err: any) {
       setNotice(err.message || 'বুকিং সম্পন্ন করা যায়নি।');
     }
+  };
+
+  const shareLiveLocationForBooking = (b: BookingRecord) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      navigate(`/bookings?bookingId=${b.id}`);
+      return;
+    }
+    setNotice('');
+    setLocBusyId(b.id);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          await apiRequest(`/api/bookings/${b.id}/location`, {
+            method: 'POST',
+            body: JSON.stringify({
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude,
+              accuracyMeters: pos.coords.accuracy,
+              addressLabel: `${b.venueName}, ${b.city}`,
+              consent: true,
+            }),
+          });
+          await loadData();
+          setNotice(`বুকিং ${b.bookingCode}-এর জন্য আপনার লাইভ Google Maps লোকেশন অ্যাডমিনের কাছে পাঠানো হয়েছে।`);
+        } catch (err: any) {
+          setNotice(err.message || 'লাইভ লোকেশন পাঠানো যায়নি।');
+        } finally {
+          setLocBusyId('');
+        }
+      },
+      () => {
+        setLocBusyId('');
+        setNotice('ব্রাউজারে GPS পারমিশন দিন অথবা বুকিং পেজে গিয়ে ম্যাপে ট্যাপ করে লোকেশন পিন করুন।');
+      },
+      { enableHighAccuracy: true, timeout: 12000 }
+    );
   };
 
   const submitVerification = async (e: React.FormEvent) => {
@@ -624,6 +661,69 @@ export function CustomerDashboardPage() {
                     />
                   </div>
                 )}
+
+                {(() => {
+                  const mapCoordsBookings = bookings.filter(
+                    (b) => !['cancelled', 'declined', 'completed'].includes(b.status)
+                  );
+                  if (mapCoordsBookings.length === 0) return null;
+                  return (
+                    <div className="bg-white border border-rose-200 rounded-xl p-5 space-y-3 shadow-xs">
+                      <div className="flex items-center justify-between gap-2">
+                        <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
+                          <Navigation className="w-4 h-4 text-rose-600" />
+                          সঙ্গীকে লাইভ লোকেশন শেয়ার ও আলাপ-আলোচনা
+                        </h2>
+                        <span className="text-[11px] font-mono text-rose-700 font-semibold">
+                          সরাসরি কাস্টমার ↔ সঙ্গী
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-600">
+                        বুকিং চলমান অবস্থায় আপনি সরাসরি সঙ্গীকে লাইভ Google Maps লোকেশন শেয়ার করতে ও আলাপ-আলোচনা করতে পারবেন (অ্যাডমিন কেবল পর্যবেক্ষণ করবেন)।
+                      </p>
+                      <div className="space-y-3">
+                        {mapCoordsBookings.slice(0, 4).map((b) => (
+                          <div key={b.id} className="p-3.5 bg-slate-50 border border-slate-200 rounded-lg space-y-2">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-xs">
+                                <span className="font-mono font-bold text-slate-900">{b.bookingCode}</span>
+                                <span className="text-slate-500"> · {b.companionName} ({b.venueName})</span>
+                              </div>
+                              <span className="text-[11px] font-semibold text-blue-800">
+                                {b.customerLiveLocation
+                                  ? '📍 সঙ্গীর সাথে লাইভ লোকেশন শেয়ার করা আছে'
+                                  : '📍 লাইভ লোকেশন এখনো শেয়ার করা হয়নি'}
+                              </span>
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                disabled={locBusyId === b.id}
+                                onClick={() => shareLiveLocationForBooking(b)}
+                                className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                              >
+                                <LocateFixed className="w-3.5 h-3.5" />
+                                {locBusyId === b.id
+                                  ? 'GPS নেওয়া হচ্ছে...'
+                                  : b.customerLiveLocation
+                                    ? 'লাইভ লোকেশন আপডেট করুন'
+                                    : 'সঙ্গীকে লাইভ লোকেশন শেয়ার করুন'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/bookings?bookingId=${b.id}`)}
+                                className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <MapPin className="w-3.5 h-3.5" /> ম্যাপ ও আলাপ-আলোচনা খুলুন
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
                   <h2 className="font-display text-lg font-bold text-slate-950">সাম্প্রতিক বুকিং অনুরোধ</h2>

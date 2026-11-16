@@ -30,6 +30,7 @@ export interface UserAccount {
   fullName: string;
   role: UserRole;
   isAdultVerified18Plus: boolean;
+  verificationStatus?: 'unverified' | 'pending' | 'approved' | 'rejected';
   phoneVerified: boolean;
   emailVerified: boolean;
   twoFactorEnabled: boolean;
@@ -84,6 +85,16 @@ export interface CompanionProfile {
   topRank?: number;
 }
 
+export interface BookingLocationPoint {
+  lat: number;
+  lng: number;
+  addressLabel?: string;
+  accuracyMeters?: number;
+  updatedAt: string;
+  updatedBy?: 'customer' | 'admin';
+  consentGiven?: boolean;
+}
+
 export interface BookingRecord {
   id: string;
   bookingCode: string;
@@ -116,6 +127,22 @@ export interface BookingRecord {
   paymentStatus: 'unpaid' | 'pending' | 'advance_paid' | 'paid' | 'cash_pending' | 'refunded';
   notes: string;
   cancellationReason?: string;
+  customerLiveLocation?: BookingLocationPoint | null;
+  meetupLocation?: BookingLocationPoint | null;
+  adminDispatchedLocation?: BookingLocationPoint | null;
+  adminLocationMessage?: string;
+  adminLocationStatus?: 'not_requested' | 'customer_location_requested' | 'customer_shared' | 'admin_dispatched';
+  locationRequestedAt?: string;
+  adminNotifiedAfter50At?: string;
+  companionWhatsapp?: string;
+  companionEmail?: string;
+  customerWhatsapp?: string;
+  customerEmail?: string;
+  companionDepartedAt?: string;
+  companionArrivedAt?: string;
+  companionArrivalLat?: number;
+  companionArrivalLng?: number;
+  companionMilestoneStatus?: 'pending' | 'accepted' | 'departed' | 'arrived' | 'completed';
   createdAt: string;
   updatedAt: string;
 }
@@ -171,10 +198,11 @@ export interface CompanionPayoutRecord {
   companionUid: string;
   companionName?: string;
   amountBdt: number;
-  method: 'bkash' | 'nagad' | 'rocket' | 'bank_eft';
+  method: 'bkash' | 'nagad' | 'rocket' | 'bank_eft' | 'whatsapp_handoff';
   accountMasked: string;
   status: 'pending' | 'approved' | 'paid' | 'rejected';
   reviewedByUid?: string;
+  adminNote?: string;
   createdAt: string;
 }
 
@@ -329,3 +357,42 @@ export interface ReferralTransactionRecord {
   relatedBookingCode?: string;
   createdAt: string;
 }
+
+export interface CompanionApplicationRecord {
+  id: string;
+  fullName: string;
+  whatsappNumber: string;
+  contactEmail: string;
+  city: string;
+  division: string;
+  gender: 'male' | 'female';
+  dateOfBirth: string;
+  calculatedAge: number;
+  hourlyRateBdt: number;
+  sessionRateBdt: number;
+  headline: string;
+  bio: string;
+  instagramHandle?: string;
+  photoUrl?: string;
+  status: 'pending' | 'approved' | 'rejected';
+  adminNote?: string;
+  issuedUid?: string;
+  issuedEmail?: string;
+  reviewedByUid?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CompanionPostRecord {
+  id: string;
+  companionUid: string;
+  companionName: string;
+  companionPhoto?: string;
+  city?: string;
+  title: string;
+  content: string;
+  photoUrl?: string;
+  tag?: string;
+  createdAt: string;
+}
+

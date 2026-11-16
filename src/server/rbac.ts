@@ -183,8 +183,20 @@ export async function assertRootProtection(params: {
 
   if (!isTargetRoot) return { allowed: true };
 
-  // No other admin can ever touch the Root Super Admin account
-  if (params.actorUid !== rootUid) {
+  // Only verified Root Super Admin owners can modify protected root settings
+  const actorAdmin =
+    params.actorUid === rootUid
+      ? null
+      : await adminDb.collection('admin_accounts').doc(params.actorUid).get();
+  const actorIsRootOwner =
+    params.actorUid === rootUid ||
+    Boolean(
+      actorAdmin?.exists &&
+        actorAdmin.data()?.isRootOwner === true &&
+        actorAdmin.data()?.role === 'root_super_admin'
+    );
+
+  if (!actorIsRootOwner) {
     await writeAuditLog({
       actorUid: params.actorUid,
       actorRole: params.actorRole,

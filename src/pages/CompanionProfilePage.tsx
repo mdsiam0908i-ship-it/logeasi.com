@@ -13,8 +13,9 @@ import {
   User,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
+import { SocialShareBar } from '../components/SocialShareBar.tsx';
 import { apiRequest, formatBdt } from '../lib/api.ts';
-import type { CompanionProfile, ReviewRecord } from '../types/logeasi.ts';
+import type { CompanionPostRecord, CompanionProfile, ReviewRecord } from '../types/logeasi.ts';
 
 function formatInstagramHref(handle: string): string {
   const clean = handle.trim();
@@ -31,6 +32,7 @@ export function CompanionProfilePage({ companionUid }: { companionUid: string })
   const { user, navigate } = useAuth();
   const [companion, setCompanion] = useState<CompanionProfile | null>(null);
   const [reviews, setReviews] = useState<ReviewRecord[]>([]);
+  const [posts, setPosts] = useState<CompanionPostRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [reportOpen, setReportOpen] = useState(false);
@@ -40,12 +42,13 @@ export function CompanionProfilePage({ companionUid }: { companionUid: string })
 
   useEffect(() => {
     setLoading(true);
-    apiRequest<{ companion: CompanionProfile; reviews: ReviewRecord[] }>(
+    apiRequest<{ companion: CompanionProfile; reviews: ReviewRecord[]; posts?: CompanionPostRecord[] }>(
       `/api/companions/${companionUid}`
     )
       .then((res) => {
         setCompanion(res.companion);
         setReviews(res.reviews || []);
+        setPosts(res.posts || []);
       })
       .catch((err) => setError(err.message || 'Profile unavailable'))
       .finally(() => setLoading(false));
@@ -320,6 +323,55 @@ export function CompanionProfilePage({ companionUid }: { companionUid: string })
                     </a>
                   )}
                 </div>
+              </div>
+            )}
+
+            <SocialShareBar
+              displayName={companion.displayName}
+              headline={companion.headline}
+              city={companion.city}
+              division={companion.division}
+              ratingAvg={companion.ratingAvg}
+              profileUrl={
+                typeof window !== 'undefined'
+                  ? `${window.location.origin}/companions/${companion.uid}`
+                  : `/companions/${companion.uid}`
+              }
+            />
+          </div>
+
+          {/* Companion Personal Posts */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-lg font-bold text-slate-950">
+                সঙ্গীর নিজের পোস্ট ও আপডেট ({posts.length})
+              </h2>
+              <span className="text-xs text-slate-500">সঙ্গীর নিজস্ব বিবরণ ও সময়সূচি</span>
+            </div>
+            {posts.length === 0 ? (
+              <p className="text-sm text-slate-500">সঙ্গী এখনো কোনো ব্যক্তিগত পোস্ট প্রকাশ করেননি।</p>
+            ) : (
+              <div className="space-y-4">
+                {posts.map((post) => (
+                  <article key={post.id} className="p-4 border border-slate-200 rounded-xl bg-slate-50/60 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <span className="font-semibold text-blue-700">{post.tag || 'আমার আপডেট'}</span>
+                      <span className="font-mono text-slate-400">
+                        {new Date(post.createdAt).toLocaleDateString('bn-BD')}
+                      </span>
+                    </div>
+                    <h3 className="font-display text-base font-bold text-slate-950">{post.title}</h3>
+                    <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-line">{post.content}</p>
+                    {post.photoUrl && (
+                      <img
+                        src={post.photoUrl}
+                        alt={post.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full max-h-80 object-cover rounded-lg border border-slate-200"
+                      />
+                    )}
+                  </article>
+                ))}
               </div>
             )}
           </div>

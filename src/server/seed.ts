@@ -1,6 +1,7 @@
 import { adminDb } from '../lib/firebase-admin.ts';
 import { DEFAULT_BENGALI_BOOKING_CATEGORIES } from '../data/bookingCategories.ts';
 import { ALL_PERMISSIONS, DEFAULT_ROLE_DEFINITIONS } from './rbac.ts';
+import { generateStrongRandomPassword, hashPassword, verifyPassword } from './security.ts';
 
 let seedPromise: Promise<void> | null = null;
 
@@ -744,5 +745,157 @@ async function runSeed(): Promise<void> {
         });
       }
     }
+  }
+
+  await ensurePrimaryRootAdminAndRbac(now);
+}
+
+async function ensurePrimaryRootAdminAndRbac(now: string): Promise<void> {
+  // Guarantee RBAC role & permission catalogs exist even on existing databases
+  for (const perm of ALL_PERMISSIONS) {
+    const pRef = adminDb.collection('admin_permissions').doc(perm.key);
+    const pSnap = await pRef.get();
+    if (!pSnap.exists) {
+      await pRef.set(perm);
+    }
+  }
+
+  for (const [roleKey, roleDef] of Object.entries(DEFAULT_ROLE_DEFINITIONS)) {
+    const rRef = adminDb.collection('admin_roles').doc(roleKey);
+    const rSnap = await rRef.get();
+    if (!rSnap.exists) {
+      await rRef.set({
+        roleKey,
+        label: roleDef.label,
+        permissions: roleDef.permissions,
+        isSystemProtected: roleDef.isSystemProtected,
+      });
+    }
+  }
+
+  const rootUid = 'adm_46c6f85e';
+  const rootUsername = (process.env.PRIMARY_ADMIN_USERNAME || 'adm_46c6f85e').trim().toLowerCase();
+  const envRootPassword = (process.env.PRIMARY_ADMIN_PASSWORD || '').trim();
+  const rootEmail = 'admin@logeasi.com';
+
+  const userRef = adminDb.collection('users').doc(rootUid);
+  const userSnap = await userRef.get();
+  if (!userSnap.exists) {
+    await userRef.set({
+      uid: rootUid,
+      username: rootUsername,
+      email: rootEmail,
+      phone: '',
+      fullName: 'LOGEASI Root Super Admin',
+      role: 'root_super_admin',
+      isAdultVerified18Plus: true,
+      phoneVerified: true,
+      emailVerified: true,
+      twoFactorEnabled: false,
+      status: 'active',
+      photoUrl: '',
+      city: 'Dhaka',
+      profileCompleted: true,
+      profileDeadlineAt: '',
+      referralCreditsBdt: 0,
+      referralCount: 0,
+      createdAt: now,
+    });
+  } else {
+    const u = userSnap.data() || {};
+    await userRef.set(
+      {
+        username: rootUsername,
+        role: 'root_super_admin',
+        status: 'active',
+        profileCompleted: true,
+        email: u.email || rootEmail,
+      },
+      { merge: true }
+    );
+  }
+
+  const adminRef = adminDb.collection('admin_accounts').doc(rootUid);
+  const adminSnap = await adminRef.get();
+  if (!adminSnap.exists) {
+    await adminRef.set({
+      uid: rootUid,
+      adminId: 'ADM-ROOT-0001',
+      username: rootUsername,
+      email: rootEmail,
+      phone: '',
+      fullName: 'LOGEASI Root Super Admin',
+      role: 'root_super_admin',
+      isRootOwner: true,
+      status: 'active',
+      createdByUid: 'system_bootstrap',
+      createdAt: now,
+    });
+  } else {
+    await adminRef.set(
+      {
+        username: rootUsername,
+        role: 'root_super_admin',
+        isRootOwner: true,
+        status: 'active',
+      },
+      { merge: true }
+    );
+  }
+
+  const privRef = userRef.collection('private').doc('security');
+  const privSnap = await privRef.get();
+  const privData = privSnap.data() || {};
+  const existingHash = typeof privData.passwordHash === 'string' ? privData.passwordHash : '';
+
+  if (envRootPassword) {
+    const matchesEnv = existingHash ? await verifyPassword(envRootPassword, existingHash) : false;
+    if (!matchesEnv) {
+      const passwordHash = await hashPassword(envRootPassword);
+      await privRef.set(
+        {
+          uid: rootUid,
+          passwordHash,
+          failedLoginAttempts: 0,
+          lockedUntil: '',
+          lastLoginAt: privData.lastLoginAt || '',
+        },
+        { merge: true }
+      );
+    } else if (privData.lockedUntil || Number(privData.failedLoginAttempts || 0) > 0) {
+      await privRef.set({ failedLoginAttempts: 0, lockedUntil: '' }, { merge: true });
+    }
+  } else if (!existingHash) {
+    const generatedInitialPassword = generateStrongRandomPassword(16);
+    const passwordHash = await hashPassword(generatedInitialPassword);
+    await privRef.set(
+      {
+        uid: rootUid,
+        passwordHash,
+        failedLoginAttempts: 0,
+        lockedUntil: '',
+        lastLoginAt: privData.lastLoginAt || '',
+      },
+      { merge: true }
+    );
+    console.info(
+      `[LOGEASI SECURITY] Generated initial bootstrap password for ${rootUsername}: ${generatedInitialPassword}`
+    );
+  }
+
+  const rootLockRef = adminDb.collection('platform_settings').doc('root_lock');
+  const rootLockSnap = await rootLockRef.get();
+  if (!rootLockSnap.exists || !rootLockSnap.data()?.rootAdminUid) {
+    await rootLockRef.set({
+      key: 'root_lock',
+      rootAdminUid: rootUid,
+      createdAt: now,
+    });
+  }
+
+  const mainRef = adminDb.collection('platform_settings').doc('main');
+  const mainSnap = await mainRef.get();
+  if (mainSnap.exists && !mainSnap.data()?.rootAdminUid) {
+    await mainRef.set({ rootAdminUid: rootUid, updatedAt: now }, { merge: true });
   }
 }

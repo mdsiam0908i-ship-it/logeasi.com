@@ -6,20 +6,35 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   Key,
+  KeyRound,
+  LocateFixed,
   Lock,
   LogOut,
+  MapPin,
+  MessageCircle,
+  MessageSquare,
+  Navigation,
+  Phone,
+  Plus,
+  Search,
+  Send,
   Shield,
   ShieldAlert,
   Shuffle,
   Sparkles,
+  UserCheck,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { DeveloperBanner } from '../components/DeveloperBanner.tsx';
 import { DevicePhotoPicker } from '../components/DevicePhotoPicker.tsx';
+import { PathaoLiveMap } from '../components/PathaoLiveMap.tsx';
 import { PaymentGatewayLogo } from '../components/PaymentGatewayLogo.tsx';
 import { BANGLADESH_DIVISIONS } from '../data/bangladeshRegions.ts';
 import {
@@ -32,6 +47,9 @@ import type {
   AdminAccountRecord,
   AdminRoleDefinition,
   AuditLogRecord,
+  BookingMessage,
+  BookingRecord,
+  CompanionApplicationRecord,
   CompanionPayoutRecord,
   CompanionProfile,
   PaymentRecord,
@@ -151,6 +169,7 @@ export function AdminLoginPage() {
   const { user, platformPublic, loginWithGoogle, refreshSession, navigate } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [totpCode, setTotpCode] = useState('');
   const [setupKey, setSetupKey] = useState('');
   const [fullName, setFullName] = useState('');
@@ -353,19 +372,31 @@ export function AdminLoginPage() {
               <input
                 required
                 type="text"
+                autoComplete="username"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="Admin Username or Email"
+                placeholder="অ্যাডমিন ইউজারনেম বা ইমেইল (যেমন: adm_46c6f85e)"
                 className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm font-mono"
               />
-              <input
-                required
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Admin Password"
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm"
-              />
+              <div className="relative">
+                <input
+                  required
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="অ্যাডমিন পাসওয়ার্ড"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-10 py-2 text-sm font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'পাসওয়ার্ড লুকান' : 'পাসওয়ার্ড দেখুন'}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
               {needs2FA && (
                 <input
                   required
@@ -398,10 +429,33 @@ export function AdminLoginPage() {
 
 // Page 17: Root Admin Dashboard
 export function RootAdminDashboardPage() {
-  const { platformPublic, refreshPublicPlatform } = useAuth();
+  const { platformPublic, currentPath, refreshPublicPlatform } = useAuth();
   const [days, setDays] = useState('30');
   const [overview, setOverview] = useState<any>(null);
   const [verifications, setVerifications] = useState<VerificationRequestRecord[]>([]);
+  const [applications, setApplications] = useState<CompanionApplicationRecord[]>([]);
+  const [appCredInputs, setAppCredInputs] = useState<Record<string, { email: string; password: string }>>({});
+  const [issuedCompanionCreds, setIssuedCompanionCreds] = useState<{
+    uid: string;
+    fullName: string;
+    whatsappNumber: string;
+    email: string;
+    issuedPassword: string;
+  } | null>(null);
+  const [showDirectCreateCmp, setShowDirectCreateCmp] = useState(false);
+  const [newCmpForm, setNewCmpForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    whatsappNumber: '',
+    division: 'Dhaka',
+    city: 'Dhaka',
+    dateOfBirth: '2000-01-01',
+    hourlyRateBdt: 1800,
+    sessionRateBdt: 4500,
+    bio: '',
+    photoUrl: '',
+  });
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [companions, setCompanions] = useState<CompanionProfile[]>([]);
   const [editingCompanion, setEditingCompanion] = useState<CompanionProfile | null>(null);
@@ -420,6 +474,8 @@ export function RootAdminDashboardPage() {
     photoUrl: '',
   });
   const [tickets, setTickets] = useState<SupportTicketRecord[]>([]);
+  const [reports, setReports] = useState<any[]>([]);
+  const [bookings, setBookings] = useState<BookingRecord[]>([]);
   const [banner, setBanner] = useState(platformPublic.announcementBanner || '');
   const [safetyNote, setSafetyNote] = useState(platformPublic.safetyNotice || '');
   const [headline, setHeadline] = useState(platformPublic.featuredHeadline || '');
@@ -446,6 +502,33 @@ export function RootAdminDashboardPage() {
   const [newCategoryInput, setNewCategoryInput] = useState('');
   const [replyMap, setReplyMap] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState('');
+  const [noticeType, setNoticeType] = useState<'success' | 'error'>('success');
+  const [busyActionId, setBusyActionId] = useState('');
+
+  // User & Companion control table filters (no truncation)
+  const [userSearch, setUserSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<'all' | 'customer' | 'companion' | 'unverified'>('all');
+
+  // Read-Only Admin Live Location & Customer-Companion Discussion Monitor state
+  const [dispatchBookingId, setDispatchBookingId] = useState<string>(() => {
+    const q = currentPath.includes('?') ? currentPath.split('?')[1] : '';
+    return new URLSearchParams(q).get('dispatchBooking') || '';
+  });
+  const [monitorMessages, setMonitorMessages] = useState<BookingMessage[]>([]);
+  const [monitorMessagesLoading, setMonitorMessagesLoading] = useState(false);
+
+  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
+    setNoticeType(type);
+    setNotice(msg);
+  };
+
+  useEffect(() => {
+    const q = currentPath.includes('?') ? currentPath.split('?')[1] : '';
+    const requestedDispatch = new URLSearchParams(q).get('dispatchBooking');
+    if (requestedDispatch) {
+      setDispatchBookingId(requestedDispatch);
+    }
+  }, [currentPath]);
 
   const loadAll = async () => {
     try {
@@ -457,20 +540,195 @@ export function RootAdminDashboardPage() {
     apiRequest<{ verifications: VerificationRequestRecord[] }>('/api/admin/verifications')
       .then((r) => setVerifications(r.verifications || []))
       .catch(() => {});
+    apiRequest<{ applications: CompanionApplicationRecord[] }>('/api/admin/companion-applications')
+      .then((r) => setApplications(r.applications || []))
+      .catch(() => {});
     apiRequest<{ users: UserAccount[] }>('/api/admin/users')
       .then((r) => setUsers(r.users || []))
       .catch(() => {});
     apiRequest<{ companions: CompanionProfile[] }>('/api/admin/companions')
       .then((r) => setCompanions(r.companions || []))
       .catch(() => {});
-    apiRequest<{ tickets: SupportTicketRecord[] }>('/api/admin/tickets')
-      .then((r) => setTickets(r.tickets || []))
+    apiRequest<{ bookings: BookingRecord[] }>('/api/admin/bookings')
+      .then((r) => {
+        const list = r.bookings || [];
+        setBookings(list);
+        if (!dispatchBookingId && list.length > 0) {
+          const prioritized =
+            list.find((b) => b.advanceStatus === 'paid' || b.advanceStatus === 'pending_verification') ||
+            list[0];
+          setDispatchBookingId(prioritized.id);
+        }
+      })
       .catch(() => {});
+    apiRequest<{ tickets: SupportTicketRecord[]; reports?: any[] }>('/api/admin/tickets')
+      .then((r) => {
+        setTickets(r.tickets || []);
+        setReports(r.reports || []);
+      })
+      .catch(() => {});
+  };
+
+  const toWaDigits = (raw?: string) => {
+    const digits = String(raw || '').replace(/\D/g, '');
+    if (!digits) return '';
+    return digits.startsWith('01') ? `88${digits}` : digits;
+  };
+
+  const approveApplicationAndCreate = async (app: CompanionApplicationRecord) => {
+    setNotice('');
+    setBusyActionId(`app_ok_${app.id}`);
+    try {
+      const creds = appCredInputs[app.id] || { email: '', password: '' };
+      const res = await apiRequest<{
+        companionUid: string;
+        issuedPassword: string;
+        email: string;
+      }>(`/api/admin/companion-applications/${app.id}/approve-create`, {
+        method: 'POST',
+        body: JSON.stringify({
+          email: creds.email?.trim() || app.contactEmail || undefined,
+          password: creds.password?.trim() || undefined,
+        }),
+      });
+      setIssuedCompanionCreds({
+        uid: res.companionUid,
+        fullName: app.fullName,
+        whatsappNumber: app.whatsappNumber,
+        email: res.email,
+        issuedPassword: res.issuedPassword,
+      });
+      showToast(
+        `${app.fullName}-এর সঙ্গী অ্যাকাউন্ট তৈরি হয়েছে! নিচে থাকা ইমেইল ও পাসওয়ার্ডটি WhatsApp-এ বুঝিয়ে দিন।`,
+        'success'
+      );
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message || 'সঙ্গী আবেদন অনুমোদন ও অ্যাকাউন্ট তৈরি ব্যর্থ হয়েছে।', 'error');
+    } finally {
+      setBusyActionId('');
+    }
+  };
+
+  const rejectApplication = async (app: CompanionApplicationRecord) => {
+    setNotice('');
+    setBusyActionId(`app_rej_${app.id}`);
+    try {
+      await apiRequest(`/api/admin/companion-applications/${app.id}/reject`, {
+        method: 'POST',
+        body: JSON.stringify({ adminNote: 'অ্যাডমিন পোর্টাল থেকে আবেদন প্রত্যাখ্যাত হয়েছে।' }),
+      });
+      showToast(`${app.fullName}-এর সঙ্গী আবেদন প্রত্যাখ্যান করা হয়েছে।`, 'success');
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message || 'আবেদন প্রত্যাখ্যান করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
+    }
+  };
+
+  const createCompanionDirectly = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setNotice('');
+    setBusyActionId('direct_cmp_create');
+    try {
+      const res = await apiRequest<{
+        companionUid: string;
+        email: string;
+        issuedPassword: string;
+      }>('/api/admin/companions/create', {
+        method: 'POST',
+        body: JSON.stringify(newCmpForm),
+      });
+      setIssuedCompanionCreds({
+        uid: res.companionUid,
+        fullName: newCmpForm.fullName,
+        whatsappNumber: newCmpForm.whatsappNumber,
+        email: res.email,
+        issuedPassword: res.issuedPassword,
+      });
+      setShowDirectCreateCmp(false);
+      setNewCmpForm({
+        fullName: '',
+        email: '',
+        password: '',
+        whatsappNumber: '',
+        division: 'Dhaka',
+        city: 'Dhaka',
+        dateOfBirth: '2000-01-01',
+        hourlyRateBdt: 1800,
+        sessionRateBdt: 4500,
+        bio: '',
+        photoUrl: '',
+      });
+      showToast('নতুন সঙ্গী অ্যাকাউন্ট সফলভাবে তৈরি হয়েছে! নিচে থেকে WhatsApp-এ ক্রেডেনশিয়াল পাঠান।', 'success');
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message || 'নতুন সঙ্গী অ্যাকাউন্ট তৈরি করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
+    }
+  };
+
+  const settleCompanionViaWhatsapp = async (c: CompanionProfile) => {
+    setNotice('');
+    const totalPayable = Math.max(0, (c.availableBalanceBdt || 0) + (c.pendingBalanceBdt || 0));
+    setBusyActionId(`settle_wa_${c.uid}`);
+    try {
+      const res = await apiRequest<{ payout: CompanionPayoutRecord }>(
+        `/api/admin/companions/${c.uid}/settle-whatsapp`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            amountBdt: totalPayable > 0 ? totalPayable : undefined,
+            note: `WhatsApp (${c.whatsappNumber || 'যোগাযোগ'})-এর মাধ্যমে অ্যাডমিন টাকা বুঝিয়ে দিয়েছেন।`,
+          }),
+        }
+      );
+      showToast(
+        `${c.displayName}-কে ${formatBdt(res.payout?.amountBdt || totalPayable)} অ্যাডমিন WhatsApp সেটেলমেন্ট হিসেবে বুঝিয়ে দেওয়া হয়েছে।`,
+        'success'
+      );
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message || 'WhatsApp সেটেলমেন্ট সম্পন্ন করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
+    }
   };
 
   useEffect(() => {
     loadAll();
   }, [days]);
+
+  const selectedDispatchBooking =
+    bookings.find((b) => b.id === dispatchBookingId) || bookings[0] || null;
+
+  const loadMonitorMessages = async (bookingId: string) => {
+    if (!bookingId) return;
+    try {
+      const res = await apiRequest<{ messages: BookingMessage[] }>(`/api/bookings/${bookingId}/messages`);
+      setMonitorMessages(res.messages || []);
+    } catch {
+      setMonitorMessages([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedDispatchBooking?.id) {
+      setMonitorMessages([]);
+      return;
+    }
+    setMonitorMessagesLoading(true);
+    loadMonitorMessages(selectedDispatchBooking.id).finally(() => setMonitorMessagesLoading(false));
+    const timer = window.setInterval(() => {
+      loadMonitorMessages(selectedDispatchBooking.id);
+      apiRequest<{ bookings: BookingRecord[] }>('/api/admin/bookings')
+        .then((r) => setBookings(r.bookings || []))
+        .catch(() => {});
+    }, 6000);
+    return () => window.clearInterval(timer);
+  }, [selectedDispatchBooking?.id]);
 
   useEffect(() => {
     if (platformPublic.bookingCategories && platformPublic.bookingCategories.length > 0) {
@@ -505,45 +763,80 @@ export function RootAdminDashboardPage() {
     e.preventDefault();
     if (!editingCompanion) return;
     setNotice('');
+    setBusyActionId(`cmp_${editingCompanion.uid}`);
     try {
       await apiRequest(`/api/admin/companions/${editingCompanion.uid}`, {
         method: 'PATCH',
         body: JSON.stringify(cmpForm),
       });
-      setNotice(`সঙ্গী ${cmpForm.displayName}-এর তথ্য অ্যাডমিন দ্বারা হালনাগাদ হয়েছে।`);
+      showToast(`সঙ্গী ${cmpForm.displayName}-এর তথ্য অ্যাডমিন দ্বারা হালনাগাদ হয়েছে।`, 'success');
       setEditingCompanion(null);
-      loadAll();
+      await loadAll();
     } catch (err: any) {
-      setNotice(err.message);
+      showToast(err.message || 'সঙ্গীর তথ্য আপডেট করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
     }
   };
 
   const reviewVerification = async (id: string, decision: 'approved' | 'rejected') => {
     setNotice('');
+    setBusyActionId(`ver_${id}`);
     try {
       await apiRequest(`/api/admin/verifications/${id}/review`, {
         method: 'POST',
         body: JSON.stringify({ decision, reviewerNote: `অ্যাডমিন দ্বারা পর্যালোচিত (${decision})` }),
       });
-      setNotice(`ভেরিফিকেশন ${id} এখন ${decision === 'approved' ? 'অনুমোদিত' : 'বাতিল'} হয়েছে।`);
-      loadAll();
+      showToast(
+        `১৮+ ভেরিফিকেশন (${id}) এখন ${decision === 'approved' ? 'অনুমোদিত' : 'বাতিল'} হয়েছে।`,
+        'success'
+      );
+      await loadAll();
     } catch (err: any) {
-      setNotice(err.message);
+      showToast(err.message || 'ভেরিফিকেশন আপডেট করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
     }
   };
 
-  const toggleUserStatus = async (uid: string, currentStatus: string) => {
+  const toggleUserStatus = async (u: UserAccount) => {
     setNotice('');
+    setBusyActionId(`usr_status_${u.uid}`);
     try {
-      const next = currentStatus === 'suspended' ? 'active' : 'suspended';
-      await apiRequest(`/api/admin/users/${uid}/status`, {
+      const next = u.status === 'suspended' ? 'active' : 'suspended';
+      await apiRequest(`/api/admin/users/${u.uid}/status`, {
         method: 'POST',
         body: JSON.stringify({ status: next }),
       });
-      setNotice(`ব্যবহারকারী ${uid}-এর অবস্থা ${next === 'suspended' ? 'স্থগিত' : 'সক্রিয়'} করা হয়েছে।`);
-      loadAll();
+      showToast(
+        `${u.fullName} (${u.role})-এর অ্যাকাউন্ট ${next === 'suspended' ? 'স্থগিত' : 'পুনরায় সক্রিয়'} করা হয়েছে।`,
+        'success'
+      );
+      await loadAll();
     } catch (err: any) {
-      setNotice(err.message);
+      showToast(err.message || 'অ্যাকাউন্ট স্ট্যাটাস পরিবর্তন করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
+    }
+  };
+
+  const toggleUserAdultVerify = async (u: UserAccount, decision: 'approved' | 'rejected') => {
+    setNotice('');
+    setBusyActionId(`usr_ver_${u.uid}`);
+    try {
+      await apiRequest(`/api/admin/users/${u.uid}/verify-adult`, {
+        method: 'POST',
+        body: JSON.stringify({ decision }),
+      });
+      showToast(
+        `${u.fullName}-এর ১৮+ পরিচয় যাচাই ${decision === 'approved' ? 'অনুমোদিত' : 'বাতিল'} করা হয়েছে।`,
+        'success'
+      );
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message || '১৮+ পরিচয় যাচাই আপডেট করা যায়নি।', 'error');
+    } finally {
+      setBusyActionId('');
     }
   };
 
@@ -554,10 +847,27 @@ export function RootAdminDashboardPage() {
         method: 'POST',
         body: JSON.stringify({ adminReply: replyMap[id] || 'সাপোর্ট টিম দ্বারা সমাধান করা হয়েছে।', status: 'resolved' }),
       });
-      setNotice(`সাপোর্ট টিকিট ${id} সমাধান করা হয়েছে।`);
-      loadAll();
+      showToast(`সাপোর্ট টিকিট ${id} সমাধান করা হয়েছে।`, 'success');
+      await loadAll();
     } catch (err: any) {
-      setNotice(err.message);
+      showToast(err.message, 'error');
+    }
+  };
+
+  const updateAdminBookingStatus = async (id: string, nextStatus: string) => {
+    setNotice('');
+    setBusyActionId(`bkg_${id}`);
+    try {
+      await apiRequest(`/api/admin/bookings/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      showToast(`বুকিং ${id}-এর অবস্থা "${nextStatus}"-এ হালনাগাদ হয়েছে।`, 'success');
+      await loadAll();
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    } finally {
+      setBusyActionId('');
     }
   };
 
@@ -642,8 +952,23 @@ export function RootAdminDashboardPage() {
       </div>
 
       {notice && (
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs font-medium text-blue-900">
-          {notice}
+        <div
+          className={`fixed bottom-5 right-5 z-50 max-w-md p-3.5 rounded-xl shadow-lg border text-xs font-semibold flex items-start gap-3 ${
+            noticeType === 'error'
+              ? 'bg-red-950 text-red-100 border-red-700'
+              : 'bg-slate-950 text-white border-blue-500'
+          }`}
+        >
+          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+          <span className="flex-1 leading-relaxed">{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice('')}
+            aria-label="নোটিশ বন্ধ করুন"
+            className="text-slate-400 hover:text-white cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -668,6 +993,156 @@ export function RootAdminDashboardPage() {
             <p className="font-mono text-xl font-bold text-slate-950 tabular-nums mt-1">{item.val}</p>
           </div>
         ))}
+      </div>
+
+      {/* Read-Only Admin Live Location & Customer-Companion Discussion Monitor (NO edit options) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          <div className="space-y-1">
+            <h2 className="font-display text-lg font-bold text-slate-950 flex items-center gap-2">
+              <Eye className="w-5 h-5 text-blue-700" />
+              কাস্টমার ↔ সঙ্গী লাইভ লোকেশন ও আলাপ-আলোচনা পর্যবেক্ষণ
+            </h2>
+            <p className="text-xs text-slate-600">
+              কাস্টমার সরাসরি সঙ্গীকে লাইভ লোকেশন শেয়ার করেন এবং নিজেদের মধ্যে আলাপ-আলোচনা করেন। অ্যাডমিন এখান থেকে সব বিষয় জানবেন ও দেখবেন — কিন্তু কোনো এডিট বা হস্তক্ষেপ করবেন না।
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-mono font-bold text-slate-800 bg-slate-100 border border-slate-300 px-3 py-1 rounded-lg inline-flex items-center gap-1.5">
+              <Lock className="w-3 h-3 text-slate-700" /> শুধু দেখার অপশন (Read-Only · কোনো এডিট নেই)
+            </span>
+            <span className="text-xs font-mono font-bold text-blue-700 bg-blue-50 border border-blue-200 px-3 py-1 rounded-lg tabular-nums">
+              {bookings.length} টি বুকিং
+            </span>
+          </div>
+        </div>
+
+        {bookings.length === 0 ? (
+          <p className="text-xs text-slate-500">এখনো কোনো বুকিং পর্যবেক্ষণের জন্য আসেনি।</p>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            <div className="lg:col-span-5 space-y-2.5 max-h-[580px] overflow-y-auto pr-1">
+              {[...bookings]
+                .sort((a, b) => {
+                  const score = (x: BookingRecord) =>
+                    (x.customerLiveLocation ? 4 : 0) +
+                    (x.advanceStatus === 'paid' ? 2 : x.advanceStatus === 'pending_verification' ? 1 : 0);
+                  return score(b) - score(a);
+                })
+                .map((b) => {
+                  const active = selectedDispatchBooking?.id === b.id;
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => setDispatchBookingId(b.id)}
+                      className={`w-full text-left p-3.5 rounded-xl border transition-colors cursor-pointer space-y-1.5 ${
+                        active
+                          ? 'bg-slate-950 text-white border-slate-950'
+                          : 'bg-slate-50/70 text-slate-900 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="font-mono font-bold">{b.bookingCode}</span>
+                        <span
+                          className={`font-semibold ${
+                            active
+                              ? 'text-emerald-300'
+                              : b.advanceStatus === 'paid'
+                                ? 'text-emerald-700'
+                                : 'text-amber-700'
+                          }`}
+                        >
+                          {b.advanceStatus === 'paid'
+                            ? '৫০% পেইড'
+                            : b.advanceStatus === 'pending_verification'
+                              ? '৫০% যাচাই অপেক্ষায়'
+                              : 'বুকিং চলমান'}
+                        </span>
+                      </div>
+                      <p className="text-xs font-bold">
+                        {b.customerName} ↔ {b.companionName}
+                      </p>
+                      <p className={`text-[11px] ${active ? 'text-slate-300' : 'text-slate-600'}`}>
+                        {b.venueName} ({b.city}) · {formatBdt(b.agreedPriceBdt)}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2 text-[10px] pt-0.5">
+                        <span className={active ? 'text-blue-300' : 'text-blue-700'}>
+                          {b.customerLiveLocation
+                            ? `📍 কাস্টমার লাইভ লোকেশন শেয়ার করেছেন`
+                            : '📍 লাইভ লোকেশন এখনো শেয়ার হয়নি'}
+                        </span>
+                        {b.companionMilestoneStatus && b.companionMilestoneStatus !== 'pending' && (
+                          <span className={active ? 'text-emerald-300' : 'text-emerald-700'}>
+                            · 🧳 {b.companionMilestoneStatus}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+
+            {selectedDispatchBooking && (
+              <div className="lg:col-span-7 space-y-4">
+                <PathaoLiveMap
+                  title={`পর্যবেক্ষণ ম্যাপ (Read-Only) — ${selectedDispatchBooking.bookingCode}`}
+                  city={selectedDispatchBooking.city}
+                  division={selectedDispatchBooking.division}
+                  venueName={selectedDispatchBooking.venueName}
+                  customerLiveLocation={selectedDispatchBooking.customerLiveLocation}
+                  meetupLocation={selectedDispatchBooking.meetupLocation}
+                  adminDispatchedLocation={selectedDispatchBooking.adminDispatchedLocation}
+                  adminInstruction={selectedDispatchBooking.adminLocationMessage}
+                  locationStatus={selectedDispatchBooking.adminLocationStatus}
+                  pickMode="view"
+                  showLiveControls={false}
+                  heightPx={270}
+                />
+
+                {/* Read-Only Customer <-> Companion Discussion Transcript */}
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2.5">
+                    <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-blue-700" />
+                      কাস্টমার ও সঙ্গীর আলাপ-আলোচনা (Read-Only ভিউ)
+                    </h3>
+                    <span className="text-[10px] font-mono text-slate-500">
+                      {monitorMessages.length} টি মেসেজ · কোনো এডিট অপশন নেই
+                    </span>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-lg p-3 h-56 overflow-y-auto space-y-2.5">
+                    {monitorMessagesLoading && monitorMessages.length === 0 ? (
+                      <p className="text-xs text-slate-400">আলাপ-আলোচনা লোড হচ্ছে...</p>
+                    ) : monitorMessages.length === 0 ? (
+                      <p className="text-xs text-slate-400">
+                        এই বুকিংয়ে এখনো কোনো আলোচনা বা লাইভ লোকেশন মেসেজ নেই।
+                      </p>
+                    ) : (
+                      monitorMessages.map((m) => (
+                        <div key={m.id} className="text-xs border-b border-slate-100 last:border-b-0 pb-2 last:pb-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-slate-900">{m.senderName}</span>
+                            <span className="text-[10px] font-mono text-slate-400">
+                              {new Date(m.createdAt).toLocaleString('bn-BD')}
+                            </span>
+                          </div>
+                          <p className="text-slate-700 mt-0.5 whitespace-pre-line">{m.body}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    অ্যাডমিন শুধুমাত্র কাস্টমার ও সঙ্গীর লাইভ লোকেশন এবং আলোচনা জানতে ও দেখতে পারবেন; এখান থেকে কোনো পরিবর্তন বা মেসেজ পাঠানো যাবে না।
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Interactive Chart + Recent Audit Activity */}
@@ -710,48 +1185,408 @@ export function RootAdminDashboardPage() {
         </div>
       </div>
 
+      {/* Companion Applications Queue + Admin Email/Password Provisioning & WhatsApp Handoff */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-bold text-slate-950 flex items-center gap-2">
+              <UserPlus className="w-5 h-5 text-blue-700" /> সঙ্গী আবেদন অনুমোদন ও অ্যাকাউন্ট তৈরি (WhatsApp হস্তান্তর)
+            </h2>
+            <p className="text-xs text-slate-500">
+              সঙ্গীরা সরাসরি অ্যাকাউন্ট খুলতে পারেন না। আবেদন যাচাই করে ইমেইল ও পাসওয়ার্ড তৈরি করুন এবং WhatsApp-এ বুঝিয়ে দিন।
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-amber-700 font-bold tabular-nums">
+              অপেক্ষমাণ: {applications.filter((a) => a.status === 'pending').length} · মোট: {applications.length}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowDirectCreateCmp((v) => !v)}
+              className="px-3.5 py-2 bg-blue-700 hover:bg-blue-800 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {showDirectCreateCmp ? 'ফর্ম বন্ধ করুন' : 'সরাসরি সঙ্গী অ্যাকাউন্ট তৈরি'}
+            </button>
+          </div>
+        </div>
+
+        {issuedCompanionCreds && (
+          <div className="p-4 bg-emerald-950 text-white rounded-xl space-y-3 border border-emerald-700">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] font-mono uppercase tracking-wider text-emerald-300 font-bold flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5" /> নতুন সঙ্গী অ্যাকাউন্ট প্রস্তুত — WhatsApp-এ বুঝিয়ে দিন
+                </p>
+                <p className="text-sm font-bold">
+                  {issuedCompanionCreds.fullName} ({issuedCompanionCreds.whatsappNumber})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIssuedCompanionCreds(null)}
+                className="text-xs text-emerald-300 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs bg-emerald-900/70 rounded-lg p-3 font-mono">
+              <div>
+                <span className="text-emerald-300 block text-[10px]">লগইন ইমেইল (Email)</span>
+                <span className="font-bold select-all">{issuedCompanionCreds.email}</span>
+              </div>
+              <div>
+                <span className="text-emerald-300 block text-[10px]">তৈরিকৃত পাসওয়ার্ড (Password)</span>
+                <span className="font-bold select-all">{issuedCompanionCreds.issuedPassword}</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = `LOGEASI.COM সঙ্গী অ্যাকাউন্ট অনুমোদিত হয়েছে!\nলগইন লিংক: ${window.location.origin}/auth\nইমেইল: ${issuedCompanionCreds.email}\nপাসওয়ার্ড: ${issuedCompanionCreds.issuedPassword}`;
+                  navigator.clipboard?.writeText(text);
+                  showToast('ইমেইল ও পাসওয়ার্ড ক্লিপবোর্ডে কপি করা হয়েছে।', 'success');
+                }}
+                className="px-3.5 py-2 bg-white text-slate-950 text-xs font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <Copy className="w-3.5 h-3.5" /> ইমেইল ও পাসওয়ার্ড কপি করুন
+              </button>
+              {toWaDigits(issuedCompanionCreds.whatsappNumber) && (
+                <a
+                  href={`https://wa.me/${toWaDigits(issuedCompanionCreds.whatsappNumber)}?text=${encodeURIComponent(
+                    `আসসালামু আলাইকুম ${issuedCompanionCreds.fullName}, LOGEASI.COM-এ আপনার সঙ্গী আবেদন অ্যাডমিন কর্তৃক অনুমোদিত হয়েছে!\n\nলগইন: ${window.location.origin}/auth\nইমেইল: ${issuedCompanionCreds.email}\nপাসওয়ার্ড: ${issuedCompanionCreds.issuedPassword}\n\nলগইন করে আপনার পোস্ট শেয়ার করুন ও বুকিং পরিচালনা করুন। পেমেন্ট অ্যাডমিনের মাধ্যমে রিসিভ হয়ে আপনার WhatsApp-এ বুঝিয়ে দেওয়া হবে।`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 text-xs font-bold rounded-lg inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" /> WhatsApp-এ ক্রেডেনশিয়াল পাঠান
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        {showDirectCreateCmp && (
+          <form
+            onSubmit={createCompanionDirectly}
+            className="p-5 bg-slate-50 border border-blue-200 rounded-xl space-y-4 text-xs"
+          >
+            <h3 className="font-display text-sm font-bold text-slate-950">
+              অ্যাডমিন থেকে সরাসরি নতুন সঙ্গী অ্যাকাউন্ট তৈরি করুন
+            </h3>
+            <DevicePhotoPicker
+              label="সঙ্গীর ছবি (ঐচ্ছিক)"
+              value={newCmpForm.photoUrl}
+              onChange={(photoUrl) => setNewCmpForm((p) => ({ ...p, photoUrl }))}
+            />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <input
+                required
+                type="text"
+                value={newCmpForm.fullName}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, fullName: e.target.value }))}
+                placeholder="সঙ্গীর পুরো নাম *"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2"
+              />
+              <input
+                required
+                type="tel"
+                value={newCmpForm.whatsappNumber}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, whatsappNumber: e.target.value }))}
+                placeholder="WhatsApp নম্বর (যেমন 017...) *"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+              <input
+                type="date"
+                value={newCmpForm.dateOfBirth}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, dateOfBirth: e.target.value }))}
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2"
+              />
+              <input
+                required
+                type="email"
+                value={newCmpForm.email}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, email: e.target.value }))}
+                placeholder="সঙ্গী লগইন ইমেইল *"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+              <input
+                type="text"
+                value={newCmpForm.password}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, password: e.target.value }))}
+                placeholder="পাসওয়ার্ড (ফাঁকা রাখলে অটো তৈরি হবে)"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+              <select
+                value={newCmpForm.division}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, division: e.target.value }))}
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2"
+              >
+                {BANGLADESH_DIVISIONS.map((d) => (
+                  <option key={d.id} value={d.id}>{d.label}</option>
+                ))}
+              </select>
+              <input
+                type="text"
+                value={newCmpForm.city}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, city: e.target.value }))}
+                placeholder="শহর (যেমন Dhaka)"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2"
+              />
+              <input
+                type="number"
+                min={500}
+                value={newCmpForm.hourlyRateBdt}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, hourlyRateBdt: Number(e.target.value) }))}
+                placeholder="ঘণ্টা রেট (BDT)"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+              <input
+                type="number"
+                min={1000}
+                value={newCmpForm.sessionRateBdt}
+                onChange={(e) => setNewCmpForm((p) => ({ ...p, sessionRateBdt: Number(e.target.value) }))}
+                placeholder="সেশন রেট (BDT)"
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+              />
+            </div>
+            <textarea
+              rows={2}
+              value={newCmpForm.bio}
+              onChange={(e) => setNewCmpForm((p) => ({ ...p, bio: e.target.value }))}
+              placeholder="সঙ্গীর বায়ো / সংক্ষিপ্ত পরিচিতি"
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2"
+            />
+            <button
+              type="submit"
+              disabled={busyActionId === 'direct_cmp_create'}
+              className="px-5 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg cursor-pointer disabled:opacity-50"
+            >
+              {busyActionId === 'direct_cmp_create'
+                ? 'অ্যাকাউন্ট তৈরি হচ্ছে...'
+                : 'ভেরিফায়েড সঙ্গী অ্যাকাউন্ট তৈরি ও পাসওয়ার্ড জেনারেট করুন'}
+            </button>
+          </form>
+        )}
+
+        {applications.length === 0 ? (
+          <p className="text-xs text-slate-500">
+            এখনো কোনো সঙ্গী আবেদন জমা হয়নি। উপরের বাটন দিয়ে সরাসরি সঙ্গী অ্যাকাউন্ট তৈরি করতে পারবেন অথবা /become-companion থেকে আবেদন এলে এখানে দেখাবে।
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {applications.map((app) => {
+              const waDigits = toWaDigits(app.whatsappNumber);
+              const credInput = appCredInputs[app.id] || {
+                email: app.contactEmail || '',
+                password: '',
+              };
+              const busyApprove = busyActionId === `app_ok_${app.id}`;
+              const busyReject = busyActionId === `app_rej_${app.id}`;
+              return (
+                <div
+                  key={app.id}
+                  className={`p-4 rounded-xl border text-xs space-y-3 ${
+                    app.status === 'pending'
+                      ? 'bg-amber-50/40 border-amber-200'
+                      : app.status === 'approved'
+                        ? 'bg-emerald-50/30 border-emerald-200'
+                        : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      {app.photoUrl && (
+                        <img
+                          src={app.photoUrl}
+                          alt={app.fullName}
+                          referrerPolicy="no-referrer"
+                          className="w-12 h-12 rounded-lg object-cover object-top border border-slate-200 shrink-0"
+                        />
+                      )}
+                      <div className="space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-bold text-sm text-slate-950">{app.fullName}</span>
+                          <span className="font-mono text-[11px] text-slate-500">({app.calculatedAge} বছর)</span>
+                          <span
+                            className={`px-2 py-0.5 rounded font-semibold text-[10px] uppercase ${
+                              app.status === 'approved'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : app.status === 'rejected'
+                                  ? 'bg-red-100 text-red-700'
+                                  : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {app.status === 'approved'
+                              ? 'অ্যাকাউন্ট তৈরি সম্পন্ন'
+                              : app.status === 'rejected'
+                                ? 'প্রত্যাখ্যাত'
+                                : 'অপেক্ষমাণ'}
+                          </span>
+                        </div>
+                        <p className="text-slate-600">
+                          {app.city} ({app.division}) · রেট: {formatBdt(app.hourlyRateBdt)}/ঘণ্টা · {formatBdt(app.sessionRateBdt)}/সেশন
+                        </p>
+                        <p className="text-slate-700">{app.bio}</p>
+                        {app.issuedEmail && (
+                          <p className="font-mono text-[11px] text-emerald-800">
+                            প্রদত্ত লগইন ইমেইল: {app.issuedEmail}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {waDigits && (
+                        <a
+                          href={`https://wa.me/${waDigits}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold inline-flex items-center gap-1"
+                        >
+                          <Phone className="w-3 h-3" /> WhatsApp ({app.whatsappNumber})
+                        </a>
+                      )}
+                    </div>
+                  </div>
+
+                  {app.status === 'pending' && (
+                    <div className="pt-2 border-t border-amber-200/70 grid grid-cols-1 sm:grid-cols-12 gap-2 items-center">
+                      <input
+                        type="email"
+                        value={credInput.email}
+                        onChange={(e) =>
+                          setAppCredInputs((prev) => ({
+                            ...prev,
+                            [app.id]: { ...credInput, email: e.target.value },
+                          }))
+                        }
+                        placeholder="তৈরিকৃত ইমেইল (ফাঁকা থাকলে অটো)"
+                        className="sm:col-span-4 bg-white border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                      />
+                      <input
+                        type="text"
+                        value={credInput.password}
+                        onChange={(e) =>
+                          setAppCredInputs((prev) => ({
+                            ...prev,
+                            [app.id]: { ...credInput, password: e.target.value },
+                          }))
+                        }
+                        placeholder="তৈরিকৃত পাসওয়ার্ড (ফাঁকা থাকলে শক্তিশালী পাসওয়ার্ড)"
+                        className="sm:col-span-4 bg-white border border-slate-300 rounded-lg px-3 py-2 font-mono"
+                      />
+                      <div className="sm:col-span-4 flex flex-wrap gap-2 justify-end">
+                        <button
+                          type="button"
+                          disabled={busyApprove || busyReject}
+                          onClick={() => approveApplicationAndCreate(app)}
+                          className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-semibold rounded-lg inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          {busyApprove ? 'তৈরি হচ্ছে...' : 'অনুমোদন ও অ্যাকাউন্ট তৈরি'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busyApprove || busyReject}
+                          onClick={() => rejectApplication(app)}
+                          className="px-3 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg cursor-pointer disabled:opacity-50"
+                        >
+                          প্রত্যাখ্যান
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* 18+ Verification Queue */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-slate-950">১৮+ পরিচয় যাচাই অনুমোদন</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">আবেদনকারী</th>
-                <th className="py-2 px-3">ডকুমেন্ট (NID / রোল)</th>
-                <th className="py-2 px-3">বয়স</th>
-                <th className="py-2 px-3">অবস্থা</th>
-                <th className="py-2 pl-3 text-right">সিদ্ধান্ত</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {verifications.map((v) => (
-                <tr key={v.id}>
-                  <td className="py-2.5 pr-3 font-semibold text-slate-900">{v.fullName} ({v.city})</td>
-                  <td className="py-2.5 px-3 font-mono uppercase">{v.documentType.replace(/_/g, ' ')} {v.documentNumberMasked}</td>
-                  <td className="py-2.5 px-3 font-mono tabular-nums">{v.calculatedAge} বছর</td>
-                  <td className="py-2.5 px-3 capitalize font-medium">{v.status}</td>
-                  <td className="py-2.5 pl-3 text-right space-x-2">
-                    <button
-                      type="button"
-                      onClick={() => reviewVerification(v.id, 'approved')}
-                      className="px-2.5 py-1 bg-blue-700 text-white rounded font-semibold cursor-pointer"
-                    >
-                      অনুমোদন
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => reviewVerification(v.id, 'rejected')}
-                      className="px-2.5 py-1 border border-red-200 text-red-700 rounded font-semibold cursor-pointer"
-                    >
-                      বাতিল
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="font-display text-lg font-bold text-slate-950">১৮+ পরিচয় যাচাই অনুমোদন</h2>
+            <p className="text-xs text-slate-500">
+              নতুন NID / স্কুল রোল আবেদন অনুমোদন বা বাতিল করুন। অনুমোদন করলে ব্যবহারকারী ও সঙ্গী প্রোফাইল উভয়ই সাথে সাথে ভেরিফায়েড হবে।
+            </p>
+          </div>
+          <span className="text-xs font-mono text-amber-700 font-bold tabular-nums">
+            অপেক্ষমাণ: {verifications.filter((v) => v.status === 'pending').length} টি · মোট: {verifications.length} টি
+          </span>
         </div>
+        {verifications.length === 0 ? (
+          <p className="text-xs text-slate-500">এখনো কোনো ১৮+ ভেরিফিকেশন আবেদন নেই। নিচের কাস্টমার ও সঙ্গী তালিকা থেকেও সরাসরি ১৮+ অনুমোদন দিতে পারবেন।</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="py-2 pr-3">আবেদনকারী</th>
+                  <th className="py-2 px-3">ডকুমেন্ট (NID / রোল)</th>
+                  <th className="py-2 px-3">বয়স</th>
+                  <th className="py-2 px-3">অবস্থা</th>
+                  <th className="py-2 pl-3 text-right">সিদ্ধান্ত</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {verifications.map((v) => {
+                  const rowBusy = busyActionId === `ver_${v.id}`;
+                  return (
+                    <tr key={v.id} className={v.status === 'pending' ? 'bg-amber-50/40' : ''}>
+                      <td className="py-2.5 pr-3 font-semibold text-slate-900">
+                        {v.fullName} ({v.city})
+                      </td>
+                      <td className="py-2.5 px-3 font-mono uppercase">
+                        {v.documentType.replace(/_/g, ' ')} {v.documentNumberMasked}
+                      </td>
+                      <td className="py-2.5 px-3 font-mono tabular-nums">{v.calculatedAge} বছর</td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`font-semibold px-2 py-0.5 rounded text-[11px] ${
+                            v.status === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : v.status === 'rejected'
+                                ? 'bg-red-100 text-red-800'
+                                : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          {v.status === 'approved'
+                            ? 'অনুমোদিত'
+                            : v.status === 'rejected'
+                              ? 'বাতিল'
+                              : 'অপেক্ষমাণ'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pl-3 text-right space-x-2">
+                        <button
+                          type="button"
+                          disabled={rowBusy || v.status === 'approved'}
+                          onClick={() => reviewVerification(v.id, 'approved')}
+                          className="px-2.5 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded font-semibold cursor-pointer disabled:opacity-45"
+                        >
+                          {rowBusy ? '...' : 'অনুমোদন'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={rowBusy || v.status === 'rejected'}
+                          onClick={() => reviewVerification(v.id, 'rejected')}
+                          className="px-2.5 py-1 border border-red-200 text-red-700 hover:bg-red-50 rounded font-semibold cursor-pointer disabled:opacity-45"
+                        >
+                          {rowBusy ? '...' : 'বাতিল'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Companion Directory & Contact Power Controls */}
@@ -925,13 +1760,16 @@ export function RootAdminDashboardPage() {
                 <th className="py-2 pr-3">সঙ্গী</th>
                 <th className="py-2 px-3">অবস্থান</th>
                 <th className="py-2 px-3">সোশ্যাল ও যোগাযোগ</th>
-                <th className="py-2 px-3">রেট</th>
+                <th className="py-2 px-3">রেট ও পাওনা</th>
                 <th className="py-2 px-3">ভেরিফিকেশন</th>
-                <th className="py-2 pl-3 text-right">পাওয়ার অ্যাকশন</th>
+                <th className="py-2 pl-3 text-right">পাওয়ার ও পেআউট অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {companions.slice(0, 100).map((c) => (
+              {companions.slice(0, 100).map((c) => {
+                const payableBdt = (c.availableBalanceBdt || 0) + (c.pendingBalanceBdt || 0);
+                const cmpWaDigits = toWaDigits(c.whatsappNumber);
+                return (
                 <tr key={c.uid} className="hover:bg-slate-50/70">
                   <td className="py-2.5 pr-3">
                     <div className="flex items-center gap-2.5">
@@ -954,63 +1792,253 @@ export function RootAdminDashboardPage() {
                   <td className="py-2.5 px-3 text-[11px] text-slate-600 font-mono">
                     {c.instagramHandle || '—'} · {c.whatsappNumber || '—'}
                   </td>
-                  <td className="py-2.5 px-3 font-mono tabular-nums">{formatBdt(c.hourlyRateBdt)}/ঘণ্টা</td>
+                  <td className="py-2.5 px-3 font-mono tabular-nums">
+                    <div>{formatBdt(c.hourlyRateBdt)}/ঘণ্টা</div>
+                    <div className="text-[11px] text-emerald-700 font-semibold">
+                      পাওনা: {formatBdt(payableBdt)}
+                    </div>
+                  </td>
                   <td className="py-2.5 px-3 capitalize font-semibold text-blue-700">{c.verificationStatus}</td>
                   <td className="py-2.5 pl-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => openCompanionPowerEditor(c)}
-                      className="px-2.5 py-1 bg-slate-900 hover:bg-blue-700 text-white rounded font-semibold cursor-pointer"
-                    >
-                      সম্পাদনা / ছবি
-                    </button>
+                    <div className="inline-flex flex-wrap justify-end gap-1.5">
+                      {cmpWaDigits && (
+                        <a
+                          href={`https://wa.me/${cmpWaDigits}?text=${encodeURIComponent(
+                            `আসসালামু আলাইকুম ${c.displayName}, LOGEASI.COM অ্যাডমিন টিম থেকে আপনার বুকিং ও পেআউট (${formatBdt(payableBdt)}) নিয়ে যোগাযোগ করছি।`
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold inline-flex items-center gap-1"
+                        >
+                          <MessageCircle className="w-3 h-3" /> WhatsApp
+                        </a>
+                      )}
+                      {payableBdt > 0 && (
+                        <button
+                          type="button"
+                          disabled={busyActionId === `settle_wa_${c.uid}`}
+                          onClick={() => settleCompanionViaWhatsapp(c)}
+                          className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded font-semibold cursor-pointer disabled:opacity-50"
+                        >
+                          {busyActionId === `settle_wa_${c.uid}` ? 'সেটেল হচ্ছে...' : 'টাকা বুঝিয়ে দিন'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => openCompanionPowerEditor(c)}
+                        className="px-2.5 py-1 bg-slate-900 hover:bg-blue-700 text-white rounded font-semibold cursor-pointer"
+                      >
+                        সম্পাদনা / ছবি
+                      </button>
+                    </div>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* User Suspension / Reinstatement */}
+      {/* User Suspension / Reinstatement & Direct 18+ Verification Controls (ALL accounts, searchable) */}
       <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <h2 className="font-display text-lg font-bold text-slate-950">কাস্টমার ও সঙ্গী অ্যাকাউন্ট নিয়ন্ত্রণ</h2>
-        <div className="overflow-x-auto">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-bold text-slate-950">কাস্টমার ও সঙ্গী অ্যাকাউন্ট নিয়ন্ত্রণ</h2>
+            <p className="text-xs text-slate-500">
+              সব কাস্টমার ও সঙ্গী অ্যাকাউন্ট (মোট {users.length} টি) এখান থেকে ১৮+ অনুমোদন, স্থগিত অথবা পুনরায় সক্রিয় করুন।
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={userSearch}
+                onChange={(e) => setUserSearch(e.target.value)}
+                placeholder="নাম, ইমেইল বা ফোন দিয়ে খুঁজুন..."
+                className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-xs w-56"
+              />
+            </div>
+            <select
+              value={userRoleFilter}
+              onChange={(e) => setUserRoleFilter(e.target.value as any)}
+              aria-label="ব্যবহারকারী ফিল্টার"
+              className="border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white cursor-pointer"
+            >
+              <option value="all">সবাই ({users.length})</option>
+              <option value="customer">শুধু কাস্টমার</option>
+              <option value="companion">শুধু সঙ্গী</option>
+              <option value="unverified">১৮+ অনুমোদন বাকি</option>
+            </select>
+          </div>
+        </div>
+        <div className="overflow-x-auto max-h-[460px] overflow-y-auto">
           <table className="w-full text-left text-xs">
-            <thead>
+            <thead className="sticky top-0 bg-white z-10">
               <tr className="border-b border-slate-200 text-slate-500">
-                <th className="py-2 pr-3">নাম</th>
+                <th className="py-2 pr-3">নাম ও যোগাযোগ</th>
                 <th className="py-2 px-3">ভূমিকা</th>
+                <th className="py-2 px-3">১৮+ যাচাই</th>
                 <th className="py-2 px-3">অবস্থা</th>
                 <th className="py-2 pl-3 text-right">পদক্ষেপ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {users.slice(0, 15).map((u) => (
-                <tr key={u.uid}>
-                  <td className="py-2.5 pr-3 font-semibold text-slate-900">{u.fullName}</td>
-                  <td className="py-2.5 px-3 capitalize">{u.role}</td>
-                  <td className="py-2.5 px-3 capitalize">{u.status}</td>
-                  <td className="py-2.5 pl-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => toggleUserStatus(u.uid, u.status)}
-                      className="px-2.5 py-1 border border-slate-300 rounded font-semibold hover:bg-slate-50 cursor-pointer"
-                    >
-                      {u.status === 'suspended' ? 'পুনরায় সক্রিয়' : 'স্থগিত করুন'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {users
+                .filter((u) => {
+                  if (userRoleFilter === 'customer' && u.role !== 'customer') return false;
+                  if (userRoleFilter === 'companion' && u.role !== 'companion') return false;
+                  if (userRoleFilter === 'unverified' && u.isAdultVerified18Plus) return false;
+                  const q = userSearch.trim().toLowerCase();
+                  if (!q) return true;
+                  return (
+                    (u.fullName || '').toLowerCase().includes(q) ||
+                    (u.email || '').toLowerCase().includes(q) ||
+                    (u.phone || '').toLowerCase().includes(q) ||
+                    (u.username || '').toLowerCase().includes(q)
+                  );
+                })
+                .map((u) => {
+                  const statusBusy = busyActionId === `usr_status_${u.uid}`;
+                  const verBusy = busyActionId === `usr_ver_${u.uid}`;
+                  return (
+                    <tr key={u.uid} className="hover:bg-slate-50/70">
+                      <td className="py-2.5 pr-3">
+                        <p className="font-semibold text-slate-900">{u.fullName}</p>
+                        <p className="text-[11px] font-mono text-slate-500">
+                          {u.email || u.phone || u.username || u.uid}
+                        </p>
+                      </td>
+                      <td className="py-2.5 px-3 capitalize font-medium">{u.role}</td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            u.isAdultVerified18Plus
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
+                          {u.isAdultVerified18Plus ? '১৮+ অনুমোদিত' : '১৮+ বাকি'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                            u.status === 'suspended'
+                              ? 'bg-red-100 text-red-800'
+                              : 'bg-slate-100 text-slate-800'
+                          }`}
+                        >
+                          {u.status === 'suspended' ? 'স্থগিত' : 'সক্রিয়'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 pl-3 text-right space-x-1.5 whitespace-nowrap">
+                        <button
+                          type="button"
+                          disabled={verBusy}
+                          onClick={() =>
+                            toggleUserAdultVerify(u, u.isAdultVerified18Plus ? 'rejected' : 'approved')
+                          }
+                          className={`px-2.5 py-1 rounded font-semibold cursor-pointer disabled:opacity-50 ${
+                            u.isAdultVerified18Plus
+                              ? 'border border-amber-300 text-amber-800 hover:bg-amber-50'
+                              : 'bg-blue-700 hover:bg-blue-800 text-white'
+                          }`}
+                        >
+                          {verBusy
+                            ? '...'
+                            : u.isAdultVerified18Plus
+                              ? '১৮+ বাতিল'
+                              : '১৮+ অনুমোদন'}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={statusBusy}
+                          onClick={() => toggleUserStatus(u)}
+                          className={`px-2.5 py-1 border rounded font-semibold cursor-pointer disabled:opacity-50 ${
+                            u.status === 'suspended'
+                              ? 'border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
+                              : 'border-red-200 text-red-700 hover:bg-red-50'
+                          }`}
+                        >
+                          {statusBusy ? '...' : u.status === 'suspended' ? 'পুনরায় সক্রিয়' : 'স্থগিত করুন'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
       </div>
 
+      {/* Bookings Monitor & Control */}
+      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-display text-lg font-bold text-slate-950">বুকিং তদারকি ও অবস্থা নিয়ন্ত্রণ</h2>
+          <span className="text-xs font-mono text-blue-700 tabular-nums">{bookings.length} টি বুকিং</span>
+        </div>
+        {bookings.length === 0 ? (
+          <p className="text-xs text-slate-500">এখনো কোনো বুকিং রেকর্ড পাওয়া যায়নি।</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-slate-200 text-slate-500">
+                  <th className="py-2 pr-3">কোড</th>
+                  <th className="py-2 px-3">কাস্টমার / সঙ্গী</th>
+                  <th className="py-2 px-3">শহর / তারিখ</th>
+                  <th className="py-2 px-3 text-right">মোট ফি</th>
+                  <th className="py-2 px-3">অবস্থা</th>
+                  <th className="py-2 pl-3 text-right">অ্যাডমিন নিয়ন্ত্রণ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {bookings.slice(0, 20).map((b) => (
+                  <tr key={b.id}>
+                    <td className="py-2.5 pr-3 font-mono font-semibold text-slate-900">{b.bookingCode}</td>
+                    <td className="py-2.5 px-3">
+                      <span className="font-semibold text-slate-900">{b.customerName}</span>
+                      <span className="text-slate-400"> → </span>
+                      <span className="text-slate-700">{b.companionName}</span>
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-600 font-mono tabular-nums">
+                      {b.city} · {b.bookingDate}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                      {formatBdt(b.agreedPriceBdt || b.proposedTotalBdt)}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-blue-700">{b.status}</td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <select
+                        value={b.status}
+                        onChange={(e) => updateAdminBookingStatus(b.id, e.target.value)}
+                        aria-label={`বুকিং ${b.bookingCode} স্ট্যাটাস পরিবর্তন`}
+                        className="border border-slate-300 rounded px-2 py-1 text-xs bg-white cursor-pointer"
+                      >
+                        <option value="requested">requested</option>
+                        <option value="accepted_awaiting_agreement">accepted_awaiting_agreement</option>
+                        <option value="price_agreed_awaiting_payment">price_agreed_awaiting_payment</option>
+                        <option value="payment_pending">payment_pending</option>
+                        <option value="confirmed_paid">confirmed_paid</option>
+                        <option value="in_progress">in_progress</option>
+                        <option value="completed">completed</option>
+                        <option value="cancelled">cancelled</option>
+                        <option value="disputed">disputed</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Support Tickets Queue + Website Content Manager */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-          <h2 className="font-display text-base font-bold text-slate-950">সাপোর্ট ও অভিযোগ টিকিট</h2>
+          <h2 className="font-display text-base font-bold text-slate-950">সাপোর্ট টিকিট ও নিরাপত্তা রিপোর্ট</h2>
           {tickets.length === 0 ? (
             <p className="text-xs text-slate-500">কোনো খোলা সাপোর্ট টিকিট নেই।</p>
           ) : (
@@ -1041,6 +2069,22 @@ export function RootAdminDashboardPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {reports.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <p className="text-xs font-bold text-red-700">নিরাপত্তা রিপোর্টসমূহ ({reports.length})</p>
+              <div className="space-y-2 max-h-40 overflow-y-auto text-xs">
+                {reports.slice(0, 5).map((r, idx) => (
+                  <div key={r.id || idx} className="p-2.5 bg-red-50/70 border border-red-200 rounded-lg">
+                    <p className="font-mono font-semibold text-slate-900">
+                      রিপোর্টেড: {r.reportedUid} · রিপোর্টার: {r.reporterUid}
+                    </p>
+                    <p className="text-slate-700">{r.reason}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -1215,6 +2259,7 @@ export function AdminManagementPage() {
   const [editStatus, setEditStatus] = useState<'active' | 'suspended'>('active');
   const [editPerms, setEditPerms] = useState<string[]>([]);
   const [useCustomPerms, setUseCustomPerms] = useState(false);
+  const [editNewPassword, setEditNewPassword] = useState('');
 
   const [notice, setNotice] = useState('');
 
@@ -1348,6 +2393,7 @@ export function AdminManagementPage() {
     setEditStatus(adm.status);
     setUseCustomPerms(Array.isArray(adm.customPermissions));
     setEditPerms(adm.customPermissions || adm.permissions || []);
+    setEditNewPassword('');
   };
 
   const toggleEditAdminPerm = (permKey: string) => {
@@ -1375,6 +2421,7 @@ export function AdminManagementPage() {
             status: editStatus,
             customPermissions: useCustomPerms ? editPerms : null,
             regeneratePassword,
+            ...(editNewPassword.trim() ? { newPassword: editNewPassword.trim() } : {}),
           }),
         }
       );
@@ -1387,6 +2434,7 @@ export function AdminManagementPage() {
       }
       setNotice(`অ্যাডমিনিস্ট্রেটর ${editingAdmin.adminId}-এর অ্যাকাউন্ট ও ক্ষমতা আপডেট হয়েছে।`);
       setEditingAdmin(null);
+      setEditNewPassword('');
       loadData();
     } catch (err: any) {
       setNotice(err.message);
@@ -1689,6 +2737,17 @@ export function AdminManagementPage() {
                 <option value="suspended">সাসপেন্ডেড (Suspended)</option>
               </select>
             </div>
+          </div>
+
+          <div className="space-y-1 text-xs max-w-sm">
+            <label className="font-semibold text-slate-700">নতুন কাস্টম পাসওয়ার্ড (ঐচ্ছিক, কমপক্ষে ৮ অক্ষর)</label>
+            <input
+              type="text"
+              value={editNewPassword}
+              onChange={(e) => setEditNewPassword(e.target.value)}
+              placeholder="পাসওয়ার্ড পরিবর্তন করতে চাইলে এখানে লিখুন..."
+              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2 font-mono"
+            />
           </div>
 
           <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
@@ -2454,10 +3513,28 @@ export function SecurityDashboardPage() {
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [severityFilter, setSeverityFilter] = useState('all');
 
-  useEffect(() => {
+  // Password change state
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswords, setShowPasswords] = useState(false);
+  const [pwBusy, setPwBusy] = useState(false);
+  const [pwMsg, setPwMsg] = useState('');
+  const [pwErr, setPwErr] = useState('');
+
+  // Secret rotation state
+  const [rotBusy, setRotBusy] = useState(false);
+  const [rotMsg, setRotMsg] = useState('');
+  const [rotErr, setRotErr] = useState('');
+
+  const loadAuditLogs = () => {
     apiRequest<{ logs: AuditLogRecord[] }>('/api/admin/audit-logs')
       .then((res) => setLogs(res.logs || []))
       .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadAuditLogs();
   }, []);
 
   const exportBackup = async () => {
@@ -2478,6 +3555,57 @@ export function SecurityDashboardPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPwMsg('');
+    setPwErr('');
+    if (newPassword.length < 10) {
+      setPwErr('নতুন পাসওয়ার্ড কমপক্ষে ১০ অক্ষরের হতে হবে।');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPwErr('নতুন পাসওয়ার্ড এবং কনফার্ম পাসওয়ার্ড মিলছে না।');
+      return;
+    }
+    setPwBusy(true);
+    try {
+      await apiRequest('/api/admin/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPwMsg('অ্যাডমিন পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।');
+      loadAuditLogs();
+    } catch (err: any) {
+      setPwErr(err?.message || 'পাসওয়ার্ড পরিবর্তন করা যায়নি।');
+    } finally {
+      setPwBusy(false);
+    }
+  };
+
+  const handleRotateSecrets = async () => {
+    setRotMsg('');
+    setRotErr('');
+    setRotBusy(true);
+    try {
+      const res = await apiRequest<{ rotated: boolean; rotatedAt: string; sessionToken?: string }>(
+        '/api/admin/security/rotate-secrets',
+        { method: 'POST' }
+      );
+      if (res.sessionToken) {
+        setStoredSessionToken(res.sessionToken);
+      }
+      setRotMsg('সব পুরোনো সেশন টোকেন ও ওয়েবহুক সিক্রেট বাতিল করে নতুন ২৫৬-বিট কী চালু করা হয়েছে।');
+      loadAuditLogs();
+    } catch (err: any) {
+      setRotErr(err?.message || 'সিক্রেট রোটেট করা যায়নি।');
+    } finally {
+      setRotBusy(false);
+    }
+  };
+
   const filtered = logs.filter((l) => severityFilter === 'all' || l.severity === severityFilter);
 
   return (
@@ -2492,7 +3620,7 @@ export function SecurityDashboardPage() {
         <div className="bg-white border border-slate-200 rounded-xl p-4">
           <p className="text-xs text-slate-500">ওয়েবহুক ও সেশন অখণ্ডতা</p>
           <p className="text-sm font-bold text-slate-950 mt-1 flex items-center gap-1.5">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> HMAC-SHA256 + HttpOnly কুকি
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" /> র‍্যান্ডম ২৫৬-বিট HMAC + HttpOnly কুকি
           </p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
@@ -2507,6 +3635,112 @@ export function SecurityDashboardPage() {
               className="px-3 py-2 bg-slate-950 text-white text-xs font-semibold rounded-lg cursor-pointer"
             >
               ব্যাকআপ এক্সপোর্ট করুন
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Credential & Secret Rotation Controls */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <form onSubmit={handleChangePassword} className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
+                <Key className="w-4 h-4 text-blue-700" /> অ্যাডমিন পাসওয়ার্ড পরিবর্তন করুন
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                কোথাও পাসওয়ার্ড শেয়ার বা ফাঁস হওয়ার আশঙ্কা থাকলে সাথে সাথে নতুন পাসওয়ার্ড সেট করুন।
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowPasswords((v) => !v)}
+              className="text-xs text-slate-600 hover:text-slate-900 inline-flex items-center gap-1 cursor-pointer"
+            >
+              {showPasswords ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              {showPasswords ? 'লুকান' : 'দেখুন'}
+            </button>
+          </div>
+
+          <div className="space-y-3 text-xs">
+            <div className="space-y-1">
+              <label className="font-semibold text-slate-700">বর্তমান পাসওয়ার্ড</label>
+              <input
+                type={showPasswords ? 'text' : 'password'}
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                className="w-full border border-slate-200 rounded-lg px-3 py-2"
+                placeholder="বর্তমান পাসওয়ার্ড লিখুন"
+              />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">নতুন পাসওয়ার্ড (কমপক্ষে ১০ অক্ষর)</label>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  required
+                  minLength={10}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2"
+                  placeholder="শক্তিশালী নতুন পাসওয়ার্ড"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="font-semibold text-slate-700">নতুন পাসওয়ার্ড নিশ্চিত করুন</label>
+                <input
+                  type={showPasswords ? 'text' : 'password'}
+                  required
+                  minLength={10}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2"
+                  placeholder="আবার লিখুন"
+                />
+              </div>
+            </div>
+          </div>
+
+          {pwErr && <p className="text-xs text-red-700 font-semibold">{pwErr}</p>}
+          {pwMsg && <p className="text-xs text-emerald-700 font-semibold">{pwMsg}</p>}
+
+          <button
+            type="submit"
+            disabled={pwBusy}
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg cursor-pointer"
+          >
+            {pwBusy ? 'সংরক্ষণ হচ্ছে...' : 'পাসওয়ার্ড পরিবর্তন করুন'}
+          </button>
+        </form>
+
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+          <div>
+            <h2 className="font-display text-base font-bold text-slate-950 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-700" /> GitHub ও API কী নিরাপত্তা (জরুরি করণীয়)
+            </h2>
+            <p className="text-xs text-slate-600 mt-1">
+              সার্ভার কোড থেকে সব হার্ডকোডেড পাসওয়ার্ড ও পাবলিক কনফিগ-ভিত্তিক সিক্রেট সরানো হয়েছে। যদি GitHub-এ আপনার রিপোজিটরি পাবলিক হয়ে থাকে:
+            </p>
+          </div>
+          <ul className="text-xs text-slate-700 space-y-1.5 list-disc pl-4">
+            <li>GitHub Repository Settings থেকে রিপোজিটরিটি অবিলম্বে <strong>Private</strong> করুন।</li>
+            <li>Google Cloud Console -&gt; Credentials-এ গিয়ে Firebase Browser API Key-তে <strong>HTTP Referrer Restriction</strong> যোগ করুন এবং প্রয়োজনে Gemini API Key নতুন করে তৈরি (Regenerate) করুন।</li>
+            <li>নিচের বাটনে ক্লিক করে পুরোনো সব সেশন ও ওয়েবহুক সিগনেচার বাতিল (Rotate) করুন।</li>
+          </ul>
+
+          {rotErr && <p className="text-xs text-red-700 font-semibold">{rotErr}</p>}
+          {rotMsg && <p className="text-xs text-emerald-700 font-semibold">{rotMsg}</p>}
+
+          {user?.isRootOwner && (
+            <button
+              type="button"
+              disabled={rotBusy}
+              onClick={handleRotateSecrets}
+              className="px-4 py-2 bg-slate-950 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg inline-flex items-center gap-2 cursor-pointer"
+            >
+              <Shuffle className="w-3.5 h-3.5" />
+              {rotBusy ? 'রোটেট হচ্ছে...' : 'সেশন ও ওয়েবহুক সিক্রেট রোটেট করুন'}
             </button>
           )}
         </div>

@@ -1,20 +1,113 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
-import firebaseConfig from '../../firebase-applet-config.json';
 
-// Deterministic stable fallback secret if env vars are not explicitly configured in deployment
-// so sessions, OTP hashes, and encrypted fields survive restarts and multi-instance scaling.
-const STABLE_APP_SEED = `${firebaseConfig.projectId}:${firebaseConfig.firestoreDatabaseId}:${firebaseConfig.appId}`;
-const RUNTIME_SESSION_SECRET =
-  process.env.SESSION_SECRET ||
-  crypto.createHmac('sha256', 'LOGEASI_SESSION_FALLBACK_V1').update(STABLE_APP_SEED).digest('hex');
-const RUNTIME_WEBHOOK_SECRET =
-  process.env.PAYMENT_WEBHOOK_SECRET ||
-  crypto.createHmac('sha256', 'LOGEASI_WEBHOOK_FALLBACK_V1').update(STABLE_APP_SEED).digest('hex');
-const RUNTIME_ENCRYPTION_KEY = crypto
-  .createHash('sha256')
-  .update(process.env.SESSION_SECRET || RUNTIME_SESSION_SECRET)
-  .digest();
+interface PersistedRuntimeSecrets {
+  sessionSecret: string;
+  webhookSecret: string;
+  dataEncryptionKey: string;
+  sessionEpoch: number;
+  rotatedAt: string;
+}
+
+function resolveSecretsPath(): string {
+  const candidates = [
+    path.resolve(process.cwd(), '.data'),
+    path.join(os.tmpdir(), 'logeasi-data'),
+  ];
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      const testFile = path.join(dir, '.write-probe');
+      fs.writeFileSync(testFile, 'ok');
+      fs.unlinkSync(testFile);
+      return path.join(dir, 'runtime-secrets.json');
+    } catch {
+      // Try next writable directory
+    }
+  }
+  return '';
+}
+
+let cachedSecrets: PersistedRuntimeSecrets | null = null;
+const SECRETS_FILE_PATH = resolveSecretsPath();
+
+function writeSecretsFile(secrets: PersistedRuntimeSecrets): void {
+  if (!SECRETS_FILE_PATH) return;
+  try {
+    fs.writeFileSync(SECRETS_FILE_PATH, JSON.stringify(secrets, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.warn('[LOGEASI SECURITY] Unable to persist runtime-secrets.json:', err);
+  }
+}
+
+function getPersistedSecrets(): PersistedRuntimeSecrets {
+  if (cachedSecrets) return cachedSecrets;
+
+  if (SECRETS_FILE_PATH && fs.existsSync(SECRETS_FILE_PATH)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(SECRETS_FILE_PATH, 'utf8')) as Partial<PersistedRuntimeSecrets>;
+      if (parsed.sessionSecret && parsed.webhookSecret && parsed.dataEncryptionKey) {
+        cachedSecrets = {
+          sessionSecret: parsed.sessionSecret,
+          webhookSecret: parsed.webhookSecret,
+          dataEncryptionKey: parsed.dataEncryptionKey,
+          sessionEpoch: Number.isFinite(Number(parsed.sessionEpoch)) ? Number(parsed.sessionEpoch) : 1,
+          rotatedAt: parsed.rotatedAt || new Date().toISOString(),
+        };
+        return cachedSecrets;
+      }
+    } catch {
+      // Regenerate below if corrupted
+    }
+  }
+
+  cachedSecrets = {
+    sessionSecret: crypto.randomBytes(32).toString('hex'),
+    webhookSecret: crypto.randomBytes(32).toString('hex'),
+    dataEncryptionKey: crypto.randomBytes(32).toString('hex'),
+    sessionEpoch: 1,
+    rotatedAt: new Date().toISOString(),
+  };
+  writeSecretsFile(cachedSecrets);
+  return cachedSecrets;
+}
+
+export function getSessionSecret(): string {
+  const persisted = getPersistedSecrets();
+  const base = process.env.SESSION_SECRET || persisted.sessionSecret;
+  return `${base}:epoch_${persisted.sessionEpoch}`;
+}
+
+export function getSessionEpoch(): number {
+  return getPersistedSecrets().sessionEpoch;
+}
+
+export function getWebhookSecret(): string {
+  return process.env.PAYMENT_WEBHOOK_SECRET || getPersistedSecrets().webhookSecret;
+}
+
+function getEncryptionKey(): Buffer {
+  const source = process.env.DATA_ENCRYPTION_KEY || getPersistedSecrets().dataEncryptionKey;
+  return crypto.createHash('sha256').update(source).digest();
+}
+
+export function rotateRuntimeSecrets(): { rotatedAt: string; sessionEpoch: number } {
+  const current = getPersistedSecrets();
+  const nextEpoch = (current.sessionEpoch || 1) + 1;
+  const next: PersistedRuntimeSecrets = {
+    sessionSecret: crypto.randomBytes(32).toString('hex'),
+    webhookSecret: crypto.randomBytes(32).toString('hex'),
+    dataEncryptionKey: current.dataEncryptionKey,
+    sessionEpoch: nextEpoch,
+    rotatedAt: new Date().toISOString(),
+  };
+  cachedSecrets = next;
+  writeSecretsFile(next);
+  return { rotatedAt: next.rotatedAt, sessionEpoch: nextEpoch };
+}
 
 // One-time runtime setup token when ROOT_ADMIN_SETUP_KEY is not configured in env
 export const RUNTIME_ROOT_SETUP_TOKEN =
@@ -26,10 +119,6 @@ if (!process.env.ROOT_ADMIN_SETUP_KEY && !process.env.ROOT_ADMIN_EMAIL) {
   );
 }
 
-export function getWebhookSecret(): string {
-  return process.env.PAYMENT_WEBHOOK_SECRET || RUNTIME_WEBHOOK_SECRET;
-}
-
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 12);
 }
@@ -39,7 +128,7 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 }
 
 export function hashOtp(otp: string): string {
-  return crypto.createHash('sha256').update(`${otp}:${RUNTIME_SESSION_SECRET}`).digest('hex');
+  return crypto.createHash('sha256').update(`${otp}:${getSessionSecret()}`).digest('hex');
 }
 
 export function generateRandomAdminUsername(prefix = 'adm'): string {
@@ -77,7 +166,7 @@ export function generateStrongRandomPassword(length = 16): string {
 
 export function encryptSensitive(plainText: string): string {
   const iv = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', RUNTIME_ENCRYPTION_KEY, iv);
+  const cipher = crypto.createCipheriv('aes-256-gcm', getEncryptionKey(), iv);
   const encrypted = Buffer.concat([cipher.update(plainText, 'utf8'), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `${iv.toString('hex')}:${tag.toString('hex')}:${encrypted.toString('hex')}`;
@@ -88,7 +177,7 @@ export function decryptSensitive(cipherText: string): string {
   if (!ivHex || !tagHex || !dataHex) throw new Error('Invalid encrypted payload');
   const decipher = crypto.createDecipheriv(
     'aes-256-gcm',
-    RUNTIME_ENCRYPTION_KEY,
+    getEncryptionKey(),
     Buffer.from(ivHex, 'hex')
   );
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
@@ -103,20 +192,22 @@ export interface SignedSessionPayload {
   uid: string;
   email: string;
   role: string;
+  epoch?: number;
   iat: number;
   exp: number;
 }
 
-export function signSessionToken(payload: Omit<SignedSessionPayload, 'iat' | 'exp'>, ttlSeconds = 60 * 60 * 12): string {
+export function signSessionToken(payload: Omit<SignedSessionPayload, 'iat' | 'exp' | 'epoch'>, ttlSeconds = 60 * 60 * 12): string {
   const now = Math.floor(Date.now() / 1000);
   const fullPayload: SignedSessionPayload = {
     ...payload,
+    epoch: getSessionEpoch(),
     iat: now,
     exp: now + ttlSeconds,
   };
   const encoded = Buffer.from(JSON.stringify(fullPayload)).toString('base64url');
   const sig = crypto
-    .createHmac('sha256', RUNTIME_SESSION_SECRET)
+    .createHmac('sha256', getSessionSecret())
     .update(encoded)
     .digest('base64url');
   return `${encoded}.${sig}`;
@@ -127,7 +218,7 @@ export function verifySessionToken(token: string): SignedSessionPayload | null {
     const [encoded, sig] = token.split('.');
     if (!encoded || !sig) return null;
     const expectedSig = crypto
-      .createHmac('sha256', RUNTIME_SESSION_SECRET)
+      .createHmac('sha256', getSessionSecret())
       .update(encoded)
       .digest('base64url');
     const a = Buffer.from(sig);
@@ -135,6 +226,7 @@ export function verifySessionToken(token: string): SignedSessionPayload | null {
     if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
     const decoded = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')) as SignedSessionPayload;
     if (!decoded.uid || decoded.exp < Math.floor(Date.now() / 1000)) return null;
+    if (decoded.epoch !== getSessionEpoch()) return null;
     return decoded;
   } catch {
     return null;

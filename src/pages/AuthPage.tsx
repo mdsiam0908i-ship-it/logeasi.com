@@ -36,7 +36,7 @@ export function AuthPage() {
   const pathInviteMatch = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]+)/);
   const initialRefCode = urlRef || (pathInviteMatch ? pathInviteMatch[1].toUpperCase() : '') || pendingReferralCode || '';
   const initialMode =
-    urlMode === 'companion' || urlTab === 'register' || Boolean(urlRef || pathInviteMatch)
+    urlTab === 'register' || Boolean(urlRef || pathInviteMatch)
       ? 'register'
       : urlTab === 'phone'
         ? 'phone'
@@ -477,11 +477,29 @@ export function AuthPage() {
                 role === 'companion' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-600'
               }`}
             >
-              সঙ্গী (কম্প্যানিয়ন) অ্যাকাউন্ট
+              সঙ্গী (অ্যাডমিন অনুমোদিত)
             </button>
           </div>
 
-          {referralCheck?.valid && (
+          {role === 'companion' && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-950 space-y-2">
+              <p className="font-bold">
+                সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না — অ্যাডমিন অনুমোদন বাধ্যতামূলক
+              </p>
+              <p className="text-[11px] leading-relaxed text-amber-900">
+                নতুন সঙ্গী হতে চাইলে আবেদন ফর্ম জমা দিন। অ্যাডমিন আবেদন অনুমোদন করে আপনার WhatsApp নম্বরে যোগাযোগ করে ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন। এরপর সেই ইমেইল ও পাসওয়ার্ড দিয়ে নিচ থেকে লগইন করবেন।
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/become-companion')}
+                className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white font-semibold rounded-lg inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                সঙ্গী হওয়ার আবেদন ফর্ম খুলুন <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {referralCheck?.valid && role === 'customer' && (
             <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2.5 text-xs text-emerald-900">
               <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
               <div>
@@ -495,22 +513,26 @@ export function AuthPage() {
             </div>
           )}
 
-          {/* Continue with Google */}
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleGoogle}
-            className="w-full py-2.5 px-4 border border-slate-300 hover:bg-slate-50 rounded-lg text-sm font-semibold text-slate-900 flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
-          >
-            <span className="font-mono font-bold text-blue-700">G</span>
-            Google দিয়ে চালিয়ে যান
-          </button>
+          {/* Continue with Google (only for Customer or already-created accounts on Login tab) */}
+          {role === 'customer' && (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleGoogle}
+                className="w-full py-2.5 px-4 border border-slate-300 hover:bg-slate-50 rounded-lg text-sm font-semibold text-slate-900 flex items-center justify-center gap-2.5 transition-colors cursor-pointer disabled:opacity-60"
+              >
+                <span className="font-mono font-bold text-blue-700">G</span>
+                Google দিয়ে চালিয়ে যান
+              </button>
 
-          <div className="relative flex items-center justify-center text-xs text-slate-400">
-            <span className="border-t border-slate-200 w-full" />
-            <span className="bg-white px-3 shrink-0">অথবা ইমেইল / ফোন ব্যবহার করুন</span>
-            <span className="border-t border-slate-200 w-full" />
-          </div>
+              <div className="relative flex items-center justify-center text-xs text-slate-400">
+                <span className="border-t border-slate-200 w-full" />
+                <span className="bg-white px-3 shrink-0">অথবা ইমেইল / ফোন ব্যবহার করুন</span>
+                <span className="border-t border-slate-200 w-full" />
+              </div>
+            </>
+          )}
 
           {/* Method Tabs */}
           <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg text-xs font-medium">
@@ -620,7 +642,34 @@ export function AuthPage() {
             </form>
           )}
 
-          {tab === 'register' && (
+          {tab === 'register' && role === 'companion' && (
+            <div className="p-5 bg-slate-950 text-white rounded-xl space-y-3 text-xs">
+              <p className="text-sm font-bold text-amber-300">
+                সরাসরি সঙ্গী অ্যাকাউন্ট খোলা বন্ধ রয়েছে
+              </p>
+              <p className="text-slate-300 leading-relaxed">
+                সঙ্গী অ্যাকাউন্ট খুলতে চাইলে আগে অ্যাডমিনের কাছে আবেদন জমা দিতে হবে। অ্যাডমিন আবেদন অনুমোদন করে আপনার WhatsApp নম্বরে যোগাযোগ করে ইমেইল ও পাসওয়ার্ড তৈরি করে বুঝিয়ে দেবেন।
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => navigate('/become-companion')}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg cursor-pointer"
+                >
+                  সঙ্গী আবেদন ফর্ম পূরণ করুন →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('login')}
+                  className="px-4 py-2 border border-slate-700 hover:bg-slate-900 text-slate-200 font-semibold rounded-lg cursor-pointer"
+                >
+                  অ্যাডমিনের দেওয়া লগইনে যান
+                </button>
+              </div>
+            </div>
+          )}
+
+          {tab === 'register' && role === 'customer' && (
             <form onSubmit={handleEmailRegister} className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
@@ -736,52 +785,6 @@ export function AuthPage() {
                 </div>
               </div>
 
-              {role === 'companion' && (
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
-                  <p className="text-xs font-semibold text-slate-900">
-                    সঙ্গীর সরাসরি যোগাযোগ ও সোশ্যাল অপশন (ঐচ্ছিক)
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                        <Instagram className="w-3 h-3 text-blue-700" /> ইনস্টাগ্রাম
-                      </label>
-                      <input
-                        type="text"
-                        value={instagramHandle}
-                        onChange={(e) => setInstagramHandle(e.target.value)}
-                        placeholder="@username"
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                        <MessageCircle className="w-3 h-3 text-emerald-600" /> হোয়াটসঅ্যাপ
-                      </label>
-                      <input
-                        type="tel"
-                        value={whatsappNumber}
-                        onChange={(e) => setWhatsappNumber(e.target.value)}
-                        placeholder="+88017..."
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[11px] font-semibold text-slate-600 flex items-center gap-1">
-                        <Mail className="w-3 h-3 text-blue-700" /> পাবলিক ইমেইল
-                      </label>
-                      <input
-                        type="email"
-                        value={contactEmail}
-                        onChange={(e) => setContactEmail(e.target.value)}
-                        placeholder="contact@domain.com"
-                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1.5">
                   <Gift className="w-3.5 h-3.5 text-blue-700" /> রেফারেল / ইনভাইট কোড (ঐচ্ছিক)
@@ -817,16 +820,30 @@ export function AuthPage() {
                 disabled={busy}
                 className="w-full py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg cursor-pointer"
               >
-                {busy
-                  ? 'অ্যাকাউন্ট তৈরি হচ্ছে...'
-                  : role === 'companion'
-                    ? 'সঙ্গী অ্যাকাউন্ট তৈরি করুন'
-                    : 'কাস্টমার অ্যাকাউন্ট তৈরি করুন'}
+                {busy ? 'অ্যাকাউন্ট তৈরি হচ্ছে...' : 'কাস্টমার অ্যাকাউন্ট তৈরি করুন'}
               </button>
             </form>
           )}
 
-          {tab === 'phone' && (
+          {tab === 'phone' && role === 'companion' && (
+            <div className="p-5 bg-slate-950 text-white rounded-xl space-y-3 text-xs">
+              <p className="text-sm font-bold text-amber-300">
+                সঙ্গী অ্যাকাউন্টের জন্য অ্যাডমিন অনুমোদন প্রয়োজন
+              </p>
+              <p className="text-slate-300 leading-relaxed">
+                ফোন OTP দিয়ে শুধুমাত্র কাস্টমার অ্যাকাউন্ট খোলা যায়। সঙ্গী হতে আবেদন জমা দিন — অ্যাডমিন আপনার WhatsApp-এ যোগাযোগ করে ইমেইল ও পাসওয়ার্ড দেবেন।
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/become-companion')}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg cursor-pointer"
+              >
+                সঙ্গী হওয়ার আবেদন ফর্ম খুলুন →
+              </button>
+            </div>
+          )}
+
+          {tab === 'phone' && role === 'customer' && (
             <div className="space-y-4">
               {!challengeId ? (
                 <form onSubmit={handleRequestOtp} className="space-y-3.5">

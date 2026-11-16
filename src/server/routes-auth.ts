@@ -9,6 +9,7 @@ import {
 } from './middleware.ts';
 import {
   createNotification,
+  getRolePermissions,
   getRootLockUid,
   isAdminRole,
   writeAuditLog,
@@ -34,7 +35,7 @@ import {
   verifyPassword,
   verifyTotpCode,
 } from './security.ts';
-import type { UserAccount } from '../types/logeasi.ts';
+import type { UserAccount, UserRole } from '../types/logeasi.ts';
 import {
   isKnownBangladeshLocation,
   normalizeDivisionKey,
@@ -176,7 +177,23 @@ authRouter.post(
 
       if (!userSnap.exists) {
         // New user registration via Google
-        const safeRole = intendedRole === 'companion' ? 'companion' : 'customer';
+        // Check if this Google user matches pre-provisioned admin email first
+        const matchingAdmins = email
+          ? await adminDb.collection('admin_accounts').where('email', '==', email).limit(1).get()
+          : null;
+
+        if (
+          intendedRole === 'companion' &&
+          !(matchingAdmins && !matchingAdmins.empty) &&
+          !(envRootEmail && email === envRootEmail && decoded.email_verified)
+        ) {
+          return res.status(403).json({
+            error:
+              'সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না। অনুগ্রহ করে "সঙ্গী হোন" পেজ থেকে আবেদন জমা দিন — অ্যাডমিন যাচাই করে WhatsApp-এ আপনার ইমেইল ও পাসওয়ার্ড তৈরি করে দেবেন।',
+          });
+        }
+
+        const safeRole = 'customer';
 
         if (dateOfBirth) {
           const age = calculateAgeFromDob(String(dateOfBirth));
@@ -186,11 +203,6 @@ authRouter.post(
             });
           }
         }
-
-        // Check if this Google user matches pre-provisioned admin email
-        const matchingAdmins = email
-          ? await adminDb.collection('admin_accounts').where('email', '==', email).limit(1).get()
-          : null;
 
         let assignedRole = safeRole;
         if (!rootLockUid && envRootEmail && email === envRootEmail && decoded.email_verified) {
@@ -235,9 +247,23 @@ authRouter.post(
             email,
             fullName: preAdmin.fullName || fullName,
           });
-          if (matchingAdmins.docs[0].id !== uid) {
+          if (!preAdmin.isRootOwner && matchingAdmins.docs[0].id !== uid) {
             await matchingAdmins.docs[0].ref.delete();
           }
+        } else if (envRootEmail && email === envRootEmail && decoded.email_verified) {
+          assignedRole = 'root_super_admin';
+          await adminDb.collection('admin_accounts').doc(uid).set({
+            uid,
+            adminId: 'ADM-ROOT-0002',
+            email,
+            phone: '',
+            fullName,
+            role: 'root_super_admin',
+            isRootOwner: true,
+            status: 'active',
+            createdByUid: 'env_bootstrap',
+            createdAt: now,
+          });
         }
 
         const isNewAdmin = isAdminRole(assignedRole as UserAccount['role']);
@@ -352,25 +378,30 @@ authRouter.post(
         }
       }
 
-      // Auto-promote pre-configured ROOT_ADMIN_EMAIL if root_lock not yet set
-      if (!rootLockUid && envRootEmail && email === envRootEmail && decoded.email_verified) {
-        await adminDb.collection('platform_settings').doc('root_lock').set({
-          key: 'root_lock',
-          rootAdminUid: uid,
-          createdAt: now,
-        });
-        await adminDb.collection('admin_accounts').doc(uid).set({
-          uid,
-          adminId: 'ADM-ROOT-0001',
-          email,
-          phone: existing.phone || '',
-          fullName: existing.fullName,
-          role: 'root_super_admin',
-          isRootOwner: true,
-          status: 'active',
-          createdByUid: 'env_bootstrap',
-          createdAt: now,
-        });
+      // Auto-promote pre-configured ROOT_ADMIN_EMAIL when verified via Google
+      if (envRootEmail && email === envRootEmail && decoded.email_verified) {
+        if (!rootLockUid) {
+          await adminDb.collection('platform_settings').doc('root_lock').set({
+            key: 'root_lock',
+            rootAdminUid: uid,
+            createdAt: now,
+          });
+        }
+        await adminDb.collection('admin_accounts').doc(uid).set(
+          {
+            uid,
+            adminId: rootLockUid && rootLockUid !== uid ? 'ADM-ROOT-0002' : 'ADM-ROOT-0001',
+            email,
+            phone: existing.phone || '',
+            fullName: existing.fullName,
+            role: 'root_super_admin',
+            isRootOwner: true,
+            status: 'active',
+            createdByUid: 'env_bootstrap',
+            createdAt: now,
+          },
+          { merge: true }
+        );
         await userRef.update({ role: 'root_super_admin' });
         existing.role = 'root_super_admin';
       }
@@ -449,8 +480,14 @@ authRouter.post(
         });
       }
 
-      // Security invariant: never allow registering admin or root roles publicly
-      const safeRole = role === 'companion' ? 'companion' : 'customer';
+      // Security invariant: never allow registering admin or companion roles publicly (companions must apply for admin approval)
+      if (role === 'companion') {
+        return res.status(403).json({
+          error:
+            'সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না। অনুগ্রহ করে সঙ্গী আবেদনের ফর্ম পূরণ করে অ্যাডমিনের অনুমোদনের জন্য জমা দিন (/become-companion)।',
+        });
+      }
+      const safeRole = 'customer';
 
       const dupCheck = await adminDb
         .collection('users')
@@ -566,7 +603,8 @@ authRouter.post(
   async (req, res) => {
     try {
       const { email, username, identifier, password, totpCode } = req.body || {};
-      const cleanIdentifier = sanitizeString(identifier || username || email, 200).toLowerCase();
+      const rawIdentifier = sanitizeString(identifier || username || email, 200);
+      const cleanIdentifier = rawIdentifier.toLowerCase();
       if (!cleanIdentifier || !password) {
         return res.status(400).json({ error: 'Username or email and password are required.' });
       }
@@ -583,11 +621,50 @@ authRouter.post(
           .limit(1)
           .get();
       }
-      if (snap.empty) {
+
+      let userDoc = snap.empty ? null : snap.docs[0];
+      if (!userDoc) {
+        // Fallback lookup in admin_accounts by username, email, or adminId (e.g. ADM-ROOT-0001)
+        let admSnap = await adminDb
+          .collection('admin_accounts')
+          .where('username', '==', cleanIdentifier)
+          .limit(1)
+          .get();
+        if (admSnap.empty) {
+          admSnap = await adminDb
+            .collection('admin_accounts')
+            .where('adminId', '==', rawIdentifier.toUpperCase())
+            .limit(1)
+            .get();
+        }
+        if (admSnap.empty) {
+          admSnap = await adminDb
+            .collection('admin_accounts')
+            .where('email', '==', cleanIdentifier)
+            .limit(1)
+            .get();
+        }
+        if (!admSnap.empty) {
+          const matchedUid = admSnap.docs[0].id;
+          const byUid = await adminDb.collection('users').doc(matchedUid).get();
+          if (byUid.exists) {
+            userDoc = byUid as any;
+          }
+        } else {
+          const directAdm = await adminDb.collection('admin_accounts').doc(rawIdentifier).get();
+          if (directAdm.exists) {
+            const byUid = await adminDb.collection('users').doc(directAdm.id).get();
+            if (byUid.exists) {
+              userDoc = byUid as any;
+            }
+          }
+        }
+      }
+
+      if (!userDoc) {
         return res.status(401).json({ error: 'Invalid username/email or password.' });
       }
 
-      const userDoc = snap.docs[0];
       const user = userDoc.data() as UserAccount;
       if (user.status !== 'active') {
         return res.status(403).json({ error: `Account is ${user.status}.` });
@@ -651,14 +728,34 @@ authRouter.post(
         { failedLoginAttempts: 0, lockedUntil: '', lastLoginAt: new Date().toISOString() },
         { merge: true }
       );
+
+      let enrichedUser: UserAccount = { ...user };
+      if (isAdminRole(user.role)) {
+        const adminSnap = await adminDb.collection('admin_accounts').doc(user.uid).get();
+        if (adminSnap.exists && adminSnap.data()?.status === 'active') {
+          const adm = adminSnap.data()!;
+          const perms =
+            adm.role !== 'root_super_admin' && Array.isArray(adm.customPermissions)
+              ? (adm.customPermissions as string[])
+              : await getRolePermissions(adm.role as UserRole);
+          enrichedUser = {
+            ...user,
+            role: adm.role as UserRole,
+            isRootOwner: Boolean(adm.isRootOwner),
+            adminId: adm.adminId,
+            permissions: perms,
+          };
+        }
+      }
+
       const sessionToken = setSessionCookie(
         req,
         res,
-        user.uid,
-        user.email || user.username || '',
-        user.role
+        enrichedUser.uid,
+        enrichedUser.email || enrichedUser.username || '',
+        enrichedUser.role
       );
-      res.json({ user, sessionToken });
+      res.json({ user: enrichedUser, sessionToken });
     } catch (err) {
       console.error('Login error:', err);
       res.status(500).json({ error: 'Login failed.' });
@@ -689,6 +786,20 @@ authRouter.post(
         }
       }
 
+      if (intendedRole === 'companion') {
+        const existingPhoneUser = await adminDb
+          .collection('users')
+          .where('phone', '==', cleanPhone)
+          .limit(1)
+          .get();
+        if (existingPhoneUser.empty) {
+          return res.status(403).json({
+            error:
+              'সরাসরি সঙ্গী অ্যাকাউন্ট খোলা যায় না। অনুগ্রহ করে সঙ্গী আবেদনের ফর্ম পূরণ করে অ্যাডমিনের অনুমোদনের জন্য জমা দিন (/become-companion)।',
+          });
+        }
+      }
+
       const otp = String(crypto.randomInt(100000, 999999));
       const challengeId = `OTP_${crypto.randomBytes(8).toString('hex')}`;
       const now = Date.now();
@@ -701,7 +812,7 @@ authRouter.post(
         phone: cleanPhone,
         fullName: sanitizeString(fullName || '', 120),
         dateOfBirth: dateOfBirth ? encryptSensitive(String(dateOfBirth)) : '',
-        intendedRole: intendedRole === 'companion' ? 'companion' : 'customer',
+        intendedRole: 'customer',
         ...(cleanGender ? { gender: cleanGender } : {}),
         ...(cleanReferralCode ? { referralCode: cleanReferralCode } : {}),
         otpHash: hashOtp(otp),
@@ -800,9 +911,9 @@ authRouter.post(
         return res.json({ verified: true, user: { ...user, phoneVerified: true }, sessionToken });
       }
 
-      // New phone user registration
+      // New phone user registration (only customer allowed publicly)
       const uid = `phn_${crypto.randomBytes(10).toString('hex')}`;
-      const safeRole = ch.intendedRole === 'companion' ? 'companion' : 'customer';
+      const safeRole = 'customer';
       const chGender: 'male' | 'female' | undefined =
         ch.gender === 'female' ? 'female' : ch.gender === 'male' ? 'male' : undefined;
       const newUser: UserAccount = {
